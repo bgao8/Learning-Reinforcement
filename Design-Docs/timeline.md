@@ -4,12 +4,12 @@
 
 Days 1–2: Audio capture spike (go/no-go, with BlackHole as fallback)
 Overlay window with click-through toggling
-docker-compose setup with Postgres and pgvector, plus the initial schema
+*docker-compose setup with Postgres and pgvector*, plus the initial schema
 Agent framework: model client and tool registry
 
 ## Week 2: Pipeline
 
-Agent framework: agent loop, structured output, tracing to Postgres
+Agent framework: agent loop, structured output, *tracing to Postgres*
 Chunked audio upload from Electron to the backend
 Transcription with silence filtering
 A rolling transcript buffer per session
@@ -23,7 +23,7 @@ Attempts saved to the database
 
 ## Week 4: Adaptation
 
-Concept extraction and deduplication with pgvector
+Concept extraction and deduplication with *pgvector*
 Elo mastery scores per concept
 Adaptive prompts that target weak concepts and preferred question styles
 

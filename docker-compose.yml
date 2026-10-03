@@ -1,0 +1,17 @@
+services:
+  db:
+    image: pgvector/pgvector:pg16
+    container_name: learning-db
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: dev
+      POSTGRES_PASSWORD: dev
+      POSTGRES_DB: learning
+    ports:
+      - "5432:5432"                       # host:container — connect from your Mac at localhost:5432
+    volumes:
+      - pgdata:/var/lib/postgresql/data   # persist data across restarts
+      - ./db/init:/docker-entrypoint-initdb.d  # *.sql here runs once on first boot
+
+volumes:
+  pgdata:

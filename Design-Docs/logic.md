@@ -8,6 +8,7 @@
 - Consider sensitivity to topic switch
 - Pause video/recording, trigger quiz
 
+
 ## Quiz
 - How to extract from logic base
 - Prompt
