@@ -1,6 +1,4 @@
-// Audio capture spike — renderer.
-//
-// Captures ~6s of system audio via the native loopback path, measures the
+// Captures 6s of system audio via the native loopback path, measures the
 // signal (peak + RMS) to prove it is NOT silence, encodes a WAV, and writes
 // both the WAV and a result.json to ./out via the main process.
 
@@ -96,17 +94,23 @@ async function run() {
   const sampleRate = ctx.sampleRate;
   log(`AudioContext sampleRate=${sampleRate} state=${ctx.state}`);
 
+  // Load the capture processor onto the audio render thread. From here the
+  // sample pulling happens off the main thread, so UI/network/STT work can't
+  // stall it (the ScriptProcessor failure mode this migration fixes).
+  await ctx.audioWorklet.addModule("capture-processor.js");
   const srcNode = ctx.createMediaStreamSource(stream);
-  const proc = ctx.createScriptProcessor(4096, 1, 1);
+  const node = new AudioWorkletNode(ctx, "capture-processor");
 
   const blocks = [];
   let peak = 0;
   let sumSq = 0;
   let count = 0;
 
-  proc.onaudioprocess = (e) => {
-    const ch = e.inputBuffer.getChannelData(0);
-    blocks.push(new Float32Array(ch));
+  // Each message is one ~4096-sample Float32 chunk, transferred from the worklet
+  // (no copy). In the product this is where samples would be streamed to STT.
+  node.port.onmessage = (e) => {
+    const ch = e.data;
+    blocks.push(ch);
     let blockPeak = 0;
     for (let i = 0; i < ch.length; i++) {
       const v = Math.abs(ch[i]);
@@ -118,12 +122,13 @@ async function run() {
     bar.style.width = `${Math.min(100, blockPeak * 140).toFixed(1)}%`;
   };
 
-  // A zero-gain sink keeps the graph pulling audio without echoing it back out
-  // of the speakers (which would cause feedback).
+  // The worklet writes no output, but the node must still reach the destination
+  // to be pulled by the render graph. A zero-gain sink guarantees that without
+  // echoing anything back out of the speakers.
   const sink = ctx.createGain();
   sink.gain.value = 0;
-  srcNode.connect(proc);
-  proc.connect(sink);
+  srcNode.connect(node);
+  node.connect(sink);
   sink.connect(ctx.destination);
 
   setVerdict(`Recording ${DURATION_MS / 1000}s… play some audio now.`, "pending");
@@ -131,7 +136,7 @@ async function run() {
 
   await new Promise((r) => setTimeout(r, DURATION_MS));
 
-  proc.disconnect();
+  node.disconnect();
   srcNode.disconnect();
   track.stop();
   await ctx.close();
