@@ -82,6 +82,7 @@ CREATE TABLE mastery (
 );
 
 -- agent run tracing (Week 2)
+-- one agent trace per agent invocation
 CREATE TABLE agent_traces (
     trace_id   UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id UUID REFERENCES sessions(session_id),
