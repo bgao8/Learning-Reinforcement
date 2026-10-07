@@ -1,0 +1,11 @@
+{
+  "verdict": "GO",
+  "peak": 1,
+  "rms": 0.129859,
+  "sampleRate": 48000,
+  "durationSec": 5.888,
+  "trackLabel": "System audio",
+  "trackEnded": false,
+  "capturedAt": "2026-10-05T03:59:26.979Z",
+  "wavPath": "/Users/brandongao/Desktop/Personal Projects/Learning-Reinforcement/spikes/audio-capture/out/capture.wav"
+}
