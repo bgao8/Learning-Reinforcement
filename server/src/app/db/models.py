@@ -16,13 +16,15 @@ from sqlalchemy import (
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import Mapped, mapped_column
 
-from server.db.base import Base
+from app.db.base import Base
 
 
 class User(Base):
     __tablename__ = "users"
 
     user_id: Mapped[uuid.UUID] = mapped_column(
+        # server_default meaning Postgres server default
+        # equivalent to SQL DEFAULT
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     user_name: Mapped[str] = mapped_column(String(30), nullable=False)
@@ -125,11 +127,19 @@ class Question(Base):
         ForeignKey("concepts.concept_id")
     )
     quiz_id: Mapped[uuid.UUID | None] = mapped_column(ForeignKey("quizzes.quiz_id"))
+    # prompt shown to the user
     prompt: Mapped[str] = mapped_column(Text, nullable=False)
     answer_key: Mapped[str | None] = mapped_column(Text)
     question_type: Mapped[str | None] = mapped_column(Text)
     options: Mapped[dict | None] = mapped_column(JSONB)
-    transcript_span: Mapped[dict | None] = mapped_column(JSONB)
+    # transcript_span: Mapped[dict | None] = mapped_column(JSONB)
+
+    span_start_chunk: Mapped[int | None] = mapped_column(Integer)
+    span_end_chunk: Mapped[int | None] = mapped_column(Integer)
+    span_start_ts: Mapped[float | None] = mapped_column(Float)
+    span_end_ts: Mapped[float | None] = mapped_column(Float)
+    span_text: Mapped[str | None] = mapped_column(Text)
+
     created_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
@@ -155,7 +165,7 @@ class Attempt(Base):
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
 
-
+# mastery per concept
 class Mastery(Base):
     __tablename__ = "mastery"
 
@@ -170,7 +180,7 @@ class Mastery(Base):
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
 
-
+# trace per invocation
 class AgentTrace(Base):
     __tablename__ = "agent_traces"
 

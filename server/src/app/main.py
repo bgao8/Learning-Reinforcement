@@ -1,8 +1,8 @@
 from fastapi import FastAPI
 from sqlalchemy import select
 
-from server.db.models import User
-from server.db.session import SessionLocal
+from app.db.models import User
+from app.db.session import SessionLocal
 
 app = FastAPI(title="Learning Reinforcement API")
 
