@@ -92,4 +92,4 @@ CREATE TABLE agent_traces (
 );
 
 -- single dev user for local work
-INSERT INTO users (user_name, email) VALUES ('Brandon', 'bgao2005@gmail.com');
+-- INSERT INTO users (user_name, email) VALUES ('Brandon', 'bgao2005@gmail.com');
