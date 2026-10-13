@@ -1,7 +1,7 @@
-# Learning-Reinforcement
+# Learning Reinforcement (Name is WIP)
 A learning reinforcement tool that quizzes you on the lecture you're watching, as you watch it, and adapts questions based on what you already know.
 
-**MVP in progress**
+**MVP in progress.**
 
 ## The Problem
 In a classroom, a teacher stops to check understanding: they ask questions, notice confusion, and revisit weak spots. 
@@ -12,16 +12,14 @@ This classic teaching method is lost in recorded online lectures, which tend to 
 This app is an overlay that sits on top of your browser and listens to system audio, detects topic changes, and generates quiz questions about chunks of audio. 
 
 A small overlay runs on top of whatever you're watching. It:
-1. Listens to your Mac's system audio and transcribes it
-2. Detects topic changes
-3. Pauses the video and asks a question
-4. Grades your answer and updatesa mastery score for each concept
-5. Adapts future questions to reinforce topics you're still weak on
+1. Listens to your Mac's system audio and transcribes it.
+2. Detects topic changes.
+3. Pauses the video and asks a question.
+4. Grades your answer and updatesa mastery score for each concept.
+5. Adapts future questions to reinforce topics you're still weak on.
 
-### Why system audio?
-Platform APIs (like YouTube's) lock functionality to one site. 
-
-Capturing system audio makes it universal to all websites, downloaded videos, and even video calls (Zoom, Meet).
+**Why system audio?**
+Platform APIs (like YouTube's) lock functionality to one site. Capturing system audio makes it universal to all websites, downloaded videos, and even video calls (Zoom, Meet).
 
 The tradeoff is that ScreenCaptureKit is limited to macOS.
 
