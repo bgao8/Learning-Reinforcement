@@ -1,6 +1,8 @@
 # Learning-Reinforcement
 A learning reinforcement tool that quizzes you on the lecture you're watching, as you watch it, and adapts questions based on what you already know.
 
+**MVP in progress**
+
 ## The Problem
 In a classroom, a teacher stops to check understanding: they ask questions, notice confusion, and revisit weak spots. 
 
