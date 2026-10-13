@@ -24,21 +24,11 @@ Capturing system audio makes it universal to all websites, downloaded videos, an
 The tradeoff is that ScreenCaptureKit is limited to macOS.
 
 ## Stack
-Audio ingestion: 
-- Apple ScreenCaptureKit
-Transcription: 
-- OpenAI Whisper API
-LLM: 
-- Sonnet 5
-Backend: 
-- FastAPI
-- SQLAlchemy
-- Alembic
-Data: 
-- Postgres + pgvector
-Frontend: 
-- Electron.js (Node.js)
-Desktop Controls: 
-- nut.js
-Cloud: 
-- AWS
+- **Audio ingestion:** Apple ScreenCaptureKit
+- **Transcription:** OpenAI Whisper API
+- **LLM:** Sonnet 5
+- **Backend:** FastAPI, SQLAlchemy, Alembic
+- **Data:** Postgres + pgvector
+- **Frontend:** Electron.js (Node.js)
+- **Desktop controls:** nut.js
+- **Cloud:** AWS
