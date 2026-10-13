@@ -1,4 +1,4 @@
-# Learning Reinforcement (Name is WIP)
+# Learning Reinforcement (WIP)
 A learning reinforcement tool that quizzes you on the lecture you're watching, as you watch it, and adapts questions based on what you already know.
 
 **MVP in progress.**
