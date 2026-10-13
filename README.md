@@ -19,7 +19,7 @@ A small overlay runs on top of whatever you're watching. It:
 5. Adapts future questions to reinforce topics you're still weak on.
 
 **Why system audio?**
-Platform APIs (like YouTube's) lock functionality to one site. Capturing system audio makes it universal to all websites, downloaded videos, and even video calls (Zoom, Meet).
+- Platform APIs (like YouTube's) lock functionality to one site. Capturing system audio makes it universal to all websites, downloaded videos, and even video calls (Zoom, Meet).
 
 The tradeoff is that ScreenCaptureKit is limited to macOS.
 
