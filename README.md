@@ -6,7 +6,7 @@ A learning reinforcement tool that quizzes you on the lecture you're watching, a
 ## The Problem
 In a classroom, a teacher stops to check understanding: they ask questions, notice confusion, and revisit weak spots. 
 
-This classic teaching method is lost in recorded online lectures, which tend to be unengaging and forgettable. There is nothign tht makes you actively recall what you just heard.
+This classic teaching method is lost in recorded online lectures, which tend to be unengaging and forgettable. There is nothing that makes you actively recall what you just heard.
 
 ## How It Works
 This app is an overlay that sits on top of your browser and listens to system audio, detects topic changes, and generates quiz questions about chunks of audio. 
@@ -15,7 +15,7 @@ A small overlay runs on top of whatever you're watching. It:
 1. Listens to your Mac's system audio and transcribes it
 2. Detects topic changes
 3. Pauses the video and asks a question
-4. Grades your answer and updates a mastery score for each concept
+4. Grades your answer and updatesa mastery score for each concept
 5. Adapts future questions to reinforce topics you're still weak on
 
 ### Why system audio?
