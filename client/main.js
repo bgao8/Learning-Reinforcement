@@ -9,12 +9,12 @@ function createWindow() {
         width: 640,
         height: 620,
         title: "Unnamed Learning Reinforcement Tool",
-        // webPreferences: {
-        //     preload: path.join(__dirname, "preload.js")
-        // }
+        webPreferences: {
+            preload: path.join(__dirname, "preload.js")
+        }
     })
     win.loadFile("index.html")
-    return win;
+    return win
 }
 
 app.whenReady().then(() => {
