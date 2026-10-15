@@ -3,19 +3,18 @@ A learning reinforcement tool that quizzes you on the lecture you're watching, a
 
 **MVP in progress.**
 
-## User Story
-As a student watching a recorded lecture, I want to be quizzed on what I just heard, at sensible moments, so that I actively recall the material and spend my review time on the concepts I'm still weak on.
-
 ## The Problem
 In a classroom, a teacher stops to check understanding: they ask questions, notice confusion, and revisit weak spots. 
 
 This classic teaching method is lost in recorded online lectures, which tend to be unengaging and forgettable. There is nothing that makes you actively recall what you just heard.
 
 ## How It Works
+This app is an overlay that sits on top of your browser and listens to system audio, detects topic changes, and generates quiz questions about chunks of audio. 
+
 A small overlay runs on top of whatever you're watching. It:
 1. Listens to your Mac's system audio and transcribes it.
 2. Detects topic changes.
-3. At a natural checkpoint (a topic shift, or enough new material), pauses the video and asks a question grounded in what was just said.
+3. Pauses the video and asks a question.
 4. Grades your answer and updates a mastery score for each concept.
 5. Adapts future questions to reinforce topics you're still weak on.
 
@@ -33,22 +32,3 @@ The tradeoff is that ScreenCaptureKit is limited to macOS.
 - **Frontend:** Electron.js (Node.js)
 - **Desktop controls:** nut.js
 - **Cloud:** AWS
-
-## Design Decisions
-- **Grounded questions.** Questions are generated only from the transcript of what was actually said, so the LLM quizzes you on the lecture, not on whatever it thinks the topic should contain.
-- **Checkpoints, not timers.** Quizzes trigger on transcript length plus topic shifts, so questions land at natural breaks instead of mid-sentence.
-- **Elo-style mastery per concept.** Each answer updates a score for (you, concept), weighted by question difficulty. Future questions target low-mastery concepts.
-- **Concept dedup with pgvector.** Concepts extracted from different lectures are matched by embedding similarity, so "gradient descent" in one video and "GD" in another share one mastery score.
-
-## MVP Roadmap
-- [x] **M0 Housekeeping:** repo hygiene, audio-capture spike (GO: native ScreenCaptureKit loopback, no BlackHole)
-- [ ] **W1 Foundations:** Electron app, overlay window, Postgres + pgvector, agent framework basics
-- [ ] **W2 Pipeline:** agent loop + tracing, chunked audio upload, Whisper transcription with silence filtering, rolling transcript buffer
-- [ ] **W3 Quiz loop:** checkpoint detection, grounded question generation, media-key pause, question card UI, LLM grading
-- [ ] **W4 Adaptation:** concept extraction + dedup, Elo mastery, adaptive prompting
-- [ ] **W5 Quality & polish:** eval harness (grader agreement, groundedness), SM-2 review mode (stretch), architecture diagram + demo
-
-**Done when:** a 20-minute lecture produces grounded questions at sensible points, results persist, and the next session adapts.
-
-## Status
-macOS only. Early development: the Electron client lives in `client/`, the FastAPI backend in `server/`. Setup instructions will land with the architecture diagram and demo.
