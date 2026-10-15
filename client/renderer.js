@@ -5,9 +5,11 @@ btn.addEventListener("click", async () => {
     // btn.disabled = true
     if (recording) {
         await stop()
+        window.api.log("Recording stopped")
     } 
     else {
         await start()
+        window.api.log("Recording started")
     }
     // btn.disabled = false
     updateButton()
@@ -55,7 +57,13 @@ async function start() {
     node.connect(sink)
     sink.connect(context.destination)
 
-    node.port.onmessage = (e) => { /* e.data = 4096 samples */}
+    // log every 50th recorded chunk
+    let chunks = 0
+    node.port.onmessage = (e) => {
+        chunks++
+        if (chunks % 50 === 0) window.api.log(`chunks=${chunks} sampleRate=${context.sampleRate}`)
+    }
+
     recording = { stream, track, context, source, node }
 }
 

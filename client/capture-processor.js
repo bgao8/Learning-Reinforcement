@@ -1,7 +1,7 @@
-const BATCH = 4096 // frames per message (~85 ms @ 48 kHz), matches the old block size
+const BATCH = 4096
 
-// CaptureProcessor class, inherits audioWorklet, which we
-// use in renderer.js
+// CaptureProcessor class, inherits AudioWorkletProcessor, which enables
+// multi-threading (browser and audio)
 class CaptureProcessor extends AudioWorkletProcessor {
     constructor() {
         super()
@@ -11,8 +11,8 @@ class CaptureProcessor extends AudioWorkletProcessor {
 
     process(inputs) {
         // capture always returns stereo
-        // inputs[0] = first input [0] = only left side channel. We ignore right
-        // same as the ScriptProcessor version. Return true to stay alive even when no
+        // inputs[0] = first input [0] = only left side channel. We ignore right side
+        // because it's redundant.
         // input is connected this quantum (e.g. right before the track stops).
         const ch = inputs[0] && inputs[0][0]
         if (!ch) return true

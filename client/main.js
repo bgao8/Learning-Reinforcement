@@ -1,8 +1,5 @@
 const {app, BrowserWindow, desktopCapturer, ipcMain, session } = require("electron")
-const fs = require("node:fs")
 const path = require("node:path")
-
-const OUT_DIR = path.join(__dirname, "out")
 
 function createWindow() {
     const win = new BrowserWindow({
@@ -24,13 +21,13 @@ app.whenReady().then(() => {
 
     session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
         try {
-        const sources = await desktopCapturer.getSources({ types: ["screen"] });
-        console.log(`[main] screen sources: ${sources.map((s) => s.name).join(", ") || "(none)"}`);
-        callback({ video: sources[0], audio: "loopback" });
-        console.log("[main] responded with audio=loopback + first screen source");
-        } catch (err) {
-        console.error("[main] failed to provide display media source:", err);
-        callback({ video: null, audio: null });
+            const sources = await desktopCapturer.getSources({ types: ["screen"] });
+            console.log(`[main] screen sources: ${sources.map((s) => s.name).join(", ") || "(none)"}`);
+            callback({ video: sources[0], audio: "loopback" });
+            console.log("[main] responded with audio=loopback + first screen source");
+            } catch (err) {
+            console.error("[main] failed to provide display media source:", err);
+            callback({ video: null, audio: null });
         }
     });
 
