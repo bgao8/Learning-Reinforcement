@@ -16,4 +16,3 @@
 ## Docker Containers
 - LLM 
 - DB (Supabase)
-- 
