@@ -8,7 +8,7 @@ function createWindow() {
     const win = new BrowserWindow({
         width: 640,
         height: 620,
-        title: "Unnamed Learning Reinforcement Tool",
+        title: "Frizz",
         webPreferences: {
             preload: path.join(__dirname, "preload.js")
         }

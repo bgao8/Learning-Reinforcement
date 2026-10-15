@@ -2,13 +2,20 @@ const btn = document.getElementById("toggle-record")
 let recording = null
 
 btn.addEventListener("click", async () => {
+    // btn.disabled = true
     if (recording) {
         await stop()
     } 
     else {
         await start()
     }
+    // btn.disabled = false
+    updateButton()
 })
+
+function updateButton() {
+    btn.textContent = recording ? "Stop Recording" : "Start Recording"
+}
 
 async function start() {
     let stream
@@ -30,6 +37,7 @@ async function start() {
     const context = new AudioContext()
 
     // context's audio thread will load (but not run) file capture-processor.js
+    // we do this to allow for multi-threading
     await context.audioWorklet.addModule("capture-processor.js") 
 
     // brings system audio into the context
