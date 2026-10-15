@@ -1,20 +1,18 @@
 ## DB
-- Postgres + pgvector (pgvector/pgvector:pg16 locally; AWS hosting TBD)
+- Postgres (Supabase)
 
 ## Backend
-- Audio capture: Electron with native macOS ScreenCaptureKit loopback
-- Transcription: OpenAI Whisper (API)
-- LLM: Sonnet 5
-- API: FastAPI, SQLAlchemy, Alembic
+- Audio capture: Electron with native loopback, OpenAI Whisper (API)
+- LLM: GPT 5-mini / Sonnet 5 (lightweight but good enough reasoning hopefully)
 - Agentic framework: Proprietary
 
 ## Frontend
-- Electron.js (Node.js)
-- Desktop controls: nut.js
+- Electron.js
 
 ## Deployment
-- AWS (single provider; specific services TBD)
+- GCP Cloud Run
+- AWS S3
 
 ## Docker Containers
-- FastAPI backend
-- Postgres + pgvector (dev)
+- LLM 
+- DB (Supabase)
