@@ -22,6 +22,18 @@ app.whenReady().then(() => {
         console.log(`[renderer] ${msg}`)
     })
 
+    session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+        try {
+        const sources = await desktopCapturer.getSources({ types: ["screen"] });
+        console.log(`[main] screen sources: ${sources.map((s) => s.name).join(", ") || "(none)"}`);
+        callback({ video: sources[0], audio: "loopback" });
+        console.log("[main] responded with audio=loopback + first screen source");
+        } catch (err) {
+        console.error("[main] failed to provide display media source:", err);
+        callback({ video: null, audio: null });
+        }
+    });
+
     createWindow()
 
     app.on("activate", () => {
@@ -29,6 +41,7 @@ app.whenReady().then(() => {
             createWindow()
         }
     })
+
 })
 
 app.on("window-all-closed", () => {
