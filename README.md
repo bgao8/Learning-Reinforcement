@@ -15,7 +15,7 @@ A small overlay runs on top of whatever you're watching. It:
 1. Listens to your Mac's system audio and transcribes it.
 2. Detects topic changes.
 3. Pauses the video and asks a question.
-4. Grades your answer and updatesa mastery score for each concept.
+4. Grades your answer and updates a mastery score for each concept.
 5. Adapts future questions to reinforce topics you're still weak on.
 
 **Why system audio?**
