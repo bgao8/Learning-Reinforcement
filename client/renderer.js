@@ -9,7 +9,7 @@ btn.addEventListener("click", async () => {
     } 
     else {
         await start()
-        window.api.log("Recording started")
+        window.api.log(recording ? "Recording started" : "Recording failed to start")
     }
     // btn.disabled = false
     updateButton()
@@ -36,35 +36,42 @@ async function start() {
     }
 
     // creates a new context for the audio to live in, starts audio thread
-    const context = new AudioContext()
+    try {
+        const context = new AudioContext()
 
-    // context's audio thread will load (but not run) file capture-processor.js
-    // we do this to allow for multi-threading
-    await context.audioWorklet.addModule("capture-processor.js") 
+        // context's audio thread will load (but not run) file capture-processor.js
+        // we do this to allow for multi-threading
+        await context.audioWorklet.addModule("capture-processor.js") 
 
-    // brings system audio into the context
-    const source = context.createMediaStreamSource(stream)
+        // brings system audio into the context
+        const source = context.createMediaStreamSource(stream)
 
-    // runs capture-processor.js code and sends samples to the renderer
-    const node = new AudioWorkletNode(context, "capture-processor")
+        // runs capture-processor.js code and sends samples to the renderer
+        const node = new AudioWorkletNode(context, "capture-processor")
 
-    // volume knob
-    const sink = context.createGain()
-    // set to mute
-    sink.gain.value = 0
+        // volume knob
+        const sink = context.createGain()
+        // set to mute
+        sink.gain.value = 0
 
-    source.connect(node)
-    node.connect(sink)
-    sink.connect(context.destination)
+        source.connect(node)
+        node.connect(sink)
+        sink.connect(context.destination)
 
-    // log every 50th recorded chunk
-    let chunks = 0
-    node.port.onmessage = (e) => {
-        chunks++
-        if (chunks % 50 === 0) window.api.log(`chunks=${chunks} sampleRate=${context.sampleRate}`)
+        // log every 50th recorded chunk
+        let chunks = 0
+        node.port.onmessage = (e) => {
+            chunks++
+            if (chunks % 50 === 0) window.api.log(`chunks=${chunks} sampleRate=${context.sampleRate}`)
+        }
+
+        recording = { stream, track, context, source, node }
+    } catch(err) {
+        window.api.log("Audio setup failed:", err.message)
+        track.stop()
+        context.close()
+        return
     }
-
-    recording = { stream, track, context, source, node }
 }
 
 async function stop() {
