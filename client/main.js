@@ -16,6 +16,8 @@ function createWindow() {
         frame: false,
         hasShadow: false,
     })
+    win.setAlwaysOnTop(true, "screen-saver")
+    win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
     win.loadFile("index.html")
     return win
 }
