@@ -11,7 +11,10 @@ function createWindow() {
         title: "Frizz",
         webPreferences: {
             preload: path.join(__dirname, "preload.js")
-        }
+        },
+        transparent: true,
+        frame: false,
+        hasShadow: false,
     })
     win.loadFile("index.html")
     return win

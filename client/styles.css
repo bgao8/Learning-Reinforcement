@@ -1,0 +1,22 @@
+html, body {
+    background: transparent;
+    margin: 0;
+}
+
+.panel {
+    background: rgba(20, 20, 20, 0.85);   /* last number is opacity */
+    color: white;
+    border-radius: 12px;
+    padding: 12px;
+    width: fit-content;
+}
+
+.drag-handle {
+    -webkit-app-region: drag;      /* dragging this element moves the window */
+    cursor: grab;
+    padding-bottom: 8px;
+}
+
+button {
+    -webkit-app-region: no-drag;   /* buttons inside a drag area must opt out to stay clickable */
+}
