@@ -2,17 +2,21 @@ const btn = document.getElementById("toggle-record")
 let recording = null
 
 btn.addEventListener("click", async () => {
-    // btn.disabled = true
-    if (recording) {
-        await stop()
-        window.api.log("Recording stopped")
-    } 
-    else {
-        await start()
-        window.api.log(recording ? "Recording started" : "Recording failed to start")
+    // ignore clicks while starting/stopping so a double-click can't open two captures
+    btn.disabled = true
+    try {
+        if (recording) {
+            await stop()
+            window.api.log("Recording stopped")
+        } 
+        else {
+            await start()
+            window.api.log(recording ? "Recording started" : "Recording failed to start")
+        }
+    } finally {
+        btn.disabled = false
+        updateButton()
     }
-    // btn.disabled = false
-    updateButton()
 })
 
 function updateButton() {
@@ -35,9 +39,18 @@ async function start() {
         return
     }
 
+    // fires only if the track dies on its own (e.g. capture permission revoked),
+    // never for our own track.stop()
+    track.onended = async () => {
+        window.api.log("Capture ended unexpectedly")
+        await stop()
+        updateButton()
+    }
+
     // creates a new context for the audio to live in, starts audio thread
+    let context
     try {
-        const context = new AudioContext()
+        context = new AudioContext()
 
         // context's audio thread will load (but not run) file capture-processor.js
         // we do this to allow for multi-threading
@@ -67,14 +80,17 @@ async function start() {
 
         recording = { stream, track, context, source, node }
     } catch(err) {
-        window.api.log("Audio setup failed:", err.message)
+        window.api.log(`Audio setup failed: ${err.message}`)
         track.stop()
-        context.close()
+        // context is undefined if new AudioContext() itself threw
+        context?.close()
         return
     }
 }
 
 async function stop() {
+    // safe to call from onended even if a click already stopped it
+    if (!recording) return
     recording.source.disconnect()
     recording.node.disconnect()
     recording.track.stop()
