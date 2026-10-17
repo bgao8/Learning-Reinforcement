@@ -5,13 +5,13 @@
 Days 1–2: Audio capture spike (go/no-go, with BlackHole as fallback)
 Overlay window with click-through toggling
 *docker-compose setup with Postgres and pgvector*, plus the initial schema
-Agent framework: model client and tool registry
+Agent framework: model client (provider-agnostic: Anthropic + local) and tool registry
 
 ## Week 2: Pipeline
 
 Agent framework: agent loop, structured output, *tracing to Postgres*
 Chunked audio upload from Electron to the backend
-Transcription with silence filtering
+Local Whisper transcription with silence filtering (API fallback)
 A rolling transcript buffer per session
 
 ## Week 3: Quiz loop
@@ -29,7 +29,7 @@ Adaptive prompts that target weak concepts and preferred question styles
 
 ## Week 5: Quality and polish
 
-Eval harness: a labeled set, grader agreement, and groundedness checks
+Eval harness: a labeled set, grader agreement, groundedness checks, and local vs. API model comparison
 SM-2 review mode, if time allows
 README with an architecture diagram, plus a demo video
 
