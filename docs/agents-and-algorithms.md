@@ -67,7 +67,7 @@
 **Trigger:** renderer -> FastAPI endpoint -> grader
 **Input:** questions, answer key, user answer, transcript span
 **Output schema:** is_correct, score (can give half-points for partial credit)
-**Latency budget:** 3000ms
+**Latency budget:** ~5 s soft, 10 s hard timeout
 **Tools:** none
 **On failure:** show answer key, let user self-grade. Elo won't be affected on failure.
 ────────────────────────────────────────
