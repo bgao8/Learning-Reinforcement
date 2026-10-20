@@ -1,6 +1,4 @@
 """Typed errors: ModelError base + ModelTimeout, ModelUnavailable, InvalidOutput."""
-from dataclasses import dataclass
-
 class ModelError(Exception):
     """Something went wrong when talking to a model."""
 
