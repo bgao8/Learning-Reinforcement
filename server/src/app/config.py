@@ -11,6 +11,7 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT_ENV, extra="ignore")
 
     database_url: str
+    anthropic_api_key: str
 
     @property
     def sqlalchemy_url(self) -> str:
