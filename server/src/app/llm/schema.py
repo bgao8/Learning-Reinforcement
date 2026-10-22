@@ -1,7 +1,6 @@
 """Validate model JSON output against a job's schema; raises InvalidOutput."""
 
 import json
-
 from app.llm.errors import InvalidOutput
 
 
