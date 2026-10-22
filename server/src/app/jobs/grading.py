@@ -7,4 +7,5 @@ GRADE_SCHEMA = {
         "feedback": {"type": "string"},
     },
     "required": ["score", "feedback"],
+    "additionalProperties": False,
 }
