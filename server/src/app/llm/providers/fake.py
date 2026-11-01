@@ -1,17 +1,19 @@
 """FakeProvider: returns canned responses, for tests."""
 from app.llm.provider import Request
-from app.llm.types import RawResponse, Usage
-from app.llm.errors import InvalidOutput, ModelError, ModelTimeout, ModelUnavailable
+from app.llm.types import RawResponse, Usage, Response
+
 
 class FakeProvider():
     def __init__(self, script: list[str | Exception]):
-        self.script = script
         self._script = iter(script)
         self.requests = []
 
-    async def complete(self, request: Request):
+    async def complete(self, request: Request) -> Response:
         self.requests.append(request)
-        item = next(self._script)
+        item = next(self._script, None)
+
+        if item is None:
+            raise AssertionError("FakeProvider script exhausted: client made more calls than expected")
 
         if isinstance(item, Exception):
             raise item
