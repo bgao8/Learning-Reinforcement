@@ -8,7 +8,7 @@ class FakeProvider():
         self._script = iter(script)
         self.requests = []
 
-    async def complete(self, request: Request) -> Response:
+    async def complete(self, request: Request) -> RawResponse:
         self.requests.append(request)
         item = next(self._script, None)
 
