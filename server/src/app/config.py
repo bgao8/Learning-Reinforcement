@@ -11,7 +11,16 @@ class Settings(BaseSettings):
     model_config = SettingsConfigDict(env_file=ROOT_ENV, extra="ignore")
 
     database_url: str
-    anthropic_api_key: str
+    anthropic_api_key: str | None = None
+    ollama_host: str = "http://localhost:11434"
+
+    smart_provider: str = "anthropic"
+    smart_model: str = "claude-sonnet-5"
+    smart_timeout_s: float = 30.0
+
+    fast_provider: str = "ollama"
+    fast_model: str = "llama3.2:3b"
+    fast_timeout_s: float = 60.0
 
     @property
     def sqlalchemy_url(self) -> str:
