@@ -2,10 +2,11 @@
 import time
 import asyncio
 
-from app.llm.errors import InvalidOutput, ModelError, ModelTimeout, ModelUnavailable
-from app.llm.types import Message, Response
+from app.llm.errors import InvalidOutput, ModelTimeout
 from app.llm.provider import Request
 from app.llm.schema import validate
+from app.llm.types import Message, Response
+
 
 RETRYABLE = (InvalidOutput, ModelTimeout)
 
