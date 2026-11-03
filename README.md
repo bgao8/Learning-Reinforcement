@@ -43,7 +43,7 @@ The tradeoff is that ScreenCaptureKit is limited to macOS.
 
 ## MVP Roadmap
 - [x] **M0 Housekeeping:** repo hygiene, audio-capture spike (GO: native ScreenCaptureKit loopback, no BlackHole)
-- [ ] **W1 Foundations:** Electron app, overlay window, Postgres + pgvector, agent framework basics (provider-agnostic model client: Anthropic + local)
+- [x] **W1 Foundations:** Electron app, overlay window, Postgres + pgvector, agent framework basics (provider-agnostic model client: Anthropic + local)
 - [ ] **W2 Pipeline:** agent loop + tracing, chunked audio upload, local Whisper transcription with silence filtering, rolling transcript buffer
 - [ ] **W3 Quiz loop:** checkpoint detection, grounded question generation, media-key pause, question card UI, LLM grading
 - [ ] **W4 Adaptation:** concept extraction + dedup, Elo mastery, adaptive prompting
