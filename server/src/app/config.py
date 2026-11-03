@@ -22,6 +22,10 @@ class Settings(BaseSettings):
     fast_model: str = "llama3.2:3b"
     fast_timeout_s: float = 60.0
 
+    stt_provider: str = "mlx"
+    stt_model: str = "mlx-community/whisper-large-v3-turbo"
+    stt_language: str = "en"
+
     @property
     def sqlalchemy_url(self) -> str:
         """SQLAlchemy needs the driver named explicitly; we use psycopg (v3)."""
