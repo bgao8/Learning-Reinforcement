@@ -1,6 +1,5 @@
 """MlxWhisperTranscriber: the only module that imports mlx_whisper."""
 import asyncio
-
 import mlx_whisper
 import numpy as np
 
@@ -9,18 +8,19 @@ class MlxWhisperTranscriber:
     def __init__(self, model: str = "mlx-community/whisper-large-v3-turbo", language: str = "en"):
         self._model = model
         self._language = language
+        # the lock ensures that only one Whisper job happnes at a time
         self._lock = asyncio.Lock()
 
-    # thread safety so Whisper operation doesn't block server
     async def transcribe(self, samples: np.ndarray) -> str:
         async with self._lock:
+            # enables multithreading. Whisper runs as a background thread
             return await asyncio.to_thread(self._transcribe_sync, samples)
 
     # runs Whisper
     def _transcribe_sync(self, samples: np.ndarray) -> str:
         result = mlx_whisper.transcribe(
             samples.astype(np.float32, copy=False),
-            path_or_hf_repo=self.model,
+            path_or_hf_repo=self._model,
             language=self._language
         )
         return result["text"].strip()
