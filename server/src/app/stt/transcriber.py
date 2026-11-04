@@ -1,7 +1,6 @@
 from typing import Protocol
 from dataclasses import dataclass
 import mlx_whisper
-
 import numpy as np
 
 

@@ -16,7 +16,7 @@ class MlxWhisperTranscriber:
         words = await self.transcribe_words(samples)
         return " ".join(word.text for word in words)
 
-    async def transcribe_words(self, samples: np.ndarray) -> str:
+    async def transcribe_words(self, samples: np.ndarray) -> list[Word]:
         async with self._lock:
             return await asyncio.to_thread(self._transcribe_words_sync, samples)
 
