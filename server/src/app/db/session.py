@@ -9,3 +9,9 @@ engine = create_engine(settings.sqlalchemy_url, future=True)
 #   with SessionLocal() as db:
 #       db.scalars(select(User)).all()
 SessionLocal = sessionmaker(bind=engine, autoflush=False, autocommit=False)
+
+def get_db():
+    with SessionLocal() as db:
+        yield db
+
+    

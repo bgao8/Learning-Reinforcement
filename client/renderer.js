@@ -1,3 +1,29 @@
+const API = "http://127.0.0.1:8000"
+
+async function createSession() {
+    const res = await fetch(`${API}/sessions`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ source: "system-audio" })
+    })
+
+    if (!res.ok) {
+        throw new Error(`POST /sessions failed: ${res.status}`)
+    }
+    const session = await res.json()
+    return session.session_id
+}
+
+async function endSession(sessionId) {
+    const res = await fetch(`${API}/sessions/${sessionId}/end`, { 
+        method: "PATCH" 
+    })
+    if (!res.ok) {
+        throw new Error(`PATCH end failed: ${res.status}`)
+    }
+}
+
+
 const btn = document.getElementById("toggle-record")
 let recording = null
 
@@ -78,7 +104,9 @@ async function start() {
             if (chunks % 50 === 0) window.api.log(`chunks=${chunks} sampleRate=${context.sampleRate}`)
         }
 
-        recording = { stream, track, context, source, node }
+        const sessionId = await createSession()
+        window.api.log(`Session started: ${sessionId}`)
+        recording = { stream, track, context, source, node, sessionId }
     } catch(err) {
         window.api.log(`Audio setup failed: ${err.message}`)
         track.stop()
@@ -91,9 +119,17 @@ async function start() {
 async function stop() {
     // safe to call from onended even if a click already stopped it
     if (!recording) return
+    const { sessionId } = recording
     recording.source.disconnect()
     recording.node.disconnect()
     recording.track.stop()
     await recording.context.close()
     recording = null
+
+    try {
+        await endSession(sessionId)
+        window.api.log(`Session ended: ${sessionId}`)
+    } catch(err) {
+        window.api.log(`Error ending session: ${err.message}`)
+    }
 }
