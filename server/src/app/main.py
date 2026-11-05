@@ -3,8 +3,10 @@ from sqlalchemy import select
 
 from app.db.models import User
 from app.db.session import SessionLocal
+from app.api.sessions import router as sessions_router
 
 app = FastAPI(title="Learning Reinforcement API")
+app.include_router(sessions_router)
 
 
 @app.get("/health")
