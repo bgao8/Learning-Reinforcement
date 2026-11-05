@@ -28,13 +28,13 @@ class SessionOut(BaseModel):
     started_at: datetime
     ended_at: datetime | None
 
-
 def get_current_user(db: DbSession = Depends(get_db)) -> User:
     user = db.scalar(select(User).where(User.email == SEND_EMAIL))
     if user is None:
         raise HTTPException(status_code=500, detail="seed user missing; run scripts/seed.py")
     return user
 
+# HTTP request routes
 @router.post("", response_model=SessionOut, status_code=201)
 def create_session(body: SessionCreate, db: DbSession = Depends(get_db), user: User = Depends(get_current_user)):
     new_session = Session(user_id=user.user_id, title=body.title, source=body.source)
