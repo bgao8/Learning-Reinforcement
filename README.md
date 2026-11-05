@@ -42,12 +42,12 @@ The tradeoff is that ScreenCaptureKit is limited to macOS.
 - **Concept dedup with pgvector.** Concepts extracted from different lectures are matched by embedding similarity, so "gradient descent" in one video and "GD" in another share one mastery score.
 
 ## MVP Roadmap
-- [x] **M0 Housekeeping:** repo hygiene, audio-capture spike (GO: native ScreenCaptureKit loopback, no BlackHole)
-- [x] **W1 Foundations:** Electron app, overlay window, Postgres + pgvector, agent framework basics (provider-agnostic model client: Anthropic + local)
-- [ ] **W2 Pipeline:** agent loop + tracing, chunked audio upload, local Whisper transcription with silence filtering, rolling transcript buffer
-- [ ] **W3 Quiz loop:** checkpoint detection, grounded question generation, media-key pause, question card UI, LLM grading
-- [ ] **W4 Adaptation:** concept extraction + dedup, Elo mastery, adaptive prompting
-- [ ] **W5 Quality & polish:** eval harness (grader agreement, groundedness, local vs. API model comparison), SM-2 review mode (stretch), architecture diagram + demo
+- [x] **Housekeeping:** repo hygiene, audio-capture spike (GO: native ScreenCaptureKit loopback, no BlackHole)
+- [x] **Foundations:** Electron app, overlay window, Postgres + pgvector, agent framework basics (provider-agnostic model client: Anthropic + local)
+- [ ] **Pipeline:** agent loop + tracing, chunked audio upload, local Whisper transcription with silence filtering, rolling transcript buffer
+- [ ] **Quiz loop:** checkpoint detection, grounded question generation, media-key pause, question card UI, LLM grading
+- [ ] **Adaptation:** concept extraction + dedup, Elo mastery, adaptive prompting
+- [ ] **Quality & polish:** eval harness (grader agreement, groundedness, local vs. API model comparison), SM-2 review mode (stretch), architecture diagram + demo
 
 **Done when:** a 20-minute lecture produces grounded questions at sensible points, results persist, and the next session adapts.
 
