@@ -49,7 +49,7 @@ def get_transcriber() -> Transcriber:
 
 # HTTP request routes
 @router.post("", response_model=SessionOut, status_code=201)
-def create_session(body: SessionCreate, db: DbSession = Depends(get_db), user: User = Depends(get_current_user), transcriber: Transcriber = Depends(get_transcriber())):
+def create_session(body: SessionCreate, db: DbSession = Depends(get_db), user: User = Depends(get_current_user), transcriber: Transcriber = Depends(get_transcriber)):
     new_session = Session(user_id=user.user_id, title=body.title, source=body.source)
     # stage new row
     db.add(new_session)
@@ -67,7 +67,7 @@ async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
     if not session:
         raise HTTPException(status_code=404, detail="session not found")
 
-    live = live_sessions.opp(session_id, None)
+    live = live_sessions.pop(session_id, None)
     if live is not None:
         await live.finish()
 
