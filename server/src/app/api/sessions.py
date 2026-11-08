@@ -8,11 +8,11 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app.db.models import Session, User
+from app.db.models import Session, User, TranscriptChunk
 from app.db.session import get_db
 
 from app.stt.factory import make_transcriber
-from app.stt.live import LiveSession, OutOfOrderChunk
+from app.stt.live import LiveSession, OutOfOrderChunk, TranscriptPiece
 from app.stt.transcriber import Transcriber
 
 live_sessions: dict[UUID, LiveSession] = {}
@@ -69,7 +69,7 @@ async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
 
     live = live_sessions.pop(session_id, None)
     if live is not None:
-        await live.finish()
+        save_pieces(db, session_id, await live.finish())
 
     if session.ended_at is None:
         session.ended_at = datetime.now(UTC)
@@ -79,7 +79,7 @@ async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
     return session
 
 @router.post("/{session_id}/chunks", status_code=204)
-async def upload_chunk(session_id: UUID, seq: int, request: Request):
+async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSession = Depends(get_db)):
     live = live_sessions.get(session_id)
     if live is None:
         raise HTTPException(status_code=409, detail="session is not recording")
@@ -89,6 +89,14 @@ async def upload_chunk(session_id: UUID, seq: int, request: Request):
         raise HTTPException(status_code=400, detail="body must be float32 samples")
 
     try:
-        await live.add_chunk(seq, np.frombuffer(raw, dtype=np.float32))
+        pieces = await live.add_chunk(seq, np.frombuffer(raw, dtype=np.float32))
     except OutOfOrderChunk:
         raise HTTPException(status_code=409, detail=f"expected seq {live.next_seq}")
+
+    save_pieces(db, session_id, pieces)
+
+def save_pieces(db: DbSession, session_id: UUID, pieces: list[TranscriptPiece]) -> None:
+    for p in pieces:
+        db.add(TranscriptChunk(session_id=session_id, seq=p.seq, text_=p.text, start_ts=p.start, end_ts=p.end))
+
+    db.commit()
