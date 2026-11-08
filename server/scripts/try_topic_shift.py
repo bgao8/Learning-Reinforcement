@@ -28,7 +28,7 @@ async def main():
             result = await detect_shift(client, previous, recent)
             seconds = time.perf_counter() - start
             print(f"{name:36s} run {run}  shift={result.shift!s:5} "
-                f"conf={result.confidence:.2f}  {seconds:.2f}s  {result.reason}")
+                f"{result.relation:<17} {seconds:.2f}s  {result.reason}")
 
 
 asyncio.run(main())

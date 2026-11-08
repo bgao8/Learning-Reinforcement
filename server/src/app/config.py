@@ -19,7 +19,7 @@ class Settings(BaseSettings):
     smart_timeout_s: float = 30.0
 
     fast_provider: str = "ollama"
-    fast_model: str = "llama3.2:3b"
+    fast_model: str = "qwen2.5:7b"
     fast_timeout_s: float = 60.0
 
     stt_provider: str = "mlx"

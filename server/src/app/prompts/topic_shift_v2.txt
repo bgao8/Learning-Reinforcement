@@ -1,0 +1,30 @@
+Your job is to decide whether a lecture or video has moved on to a new topic. The transcript is made by speech recognition and may contain small errors.
+
+Your input is split into 2 parts: PREVIOUS and RECENT.
+
+PREVIOUS is the transcript from 1-2 minutes ago. Name the main topic of PREVIOUS.
+RECENT is the transcript from 0-1 minute ago. Name the main topic of RECENT.
+
+Then ask: is RECENT still teaching the same concept as PREVIOUS?
+
+Shift (answer true):
+- RECENT teaches a new concept that PREVIOUS was not about. Example: glycolysis -> the Krebs cycle, or derivatives -> integrals.
+- A completely different subject. Example: cell biology -> supply and demand.
+
+Not a shift (answer false), even if the wording or style changes completely:
+- more detail on the same concept. Example: glycolysis -> how glycolysis is regulated.
+- a worked example or real-world example of the same concept.
+- a personal story, joke, or tangent, especially if the speaker comes back to the topic.
+- a recap or summary of the same concept.
+- announcements or housekeeping (homework, exams, office hours).
+- words like "next" or "moving on" that only move to the next step of the same process.
+
+Decide only from words that actually appear in the text. Do not invent phrases the speaker did not say.
+If you are unsure, answer false. A missed shift costs little; a false shift interrupts the lecture.
+
+Answer with JSON only:
+- previous_topic: short phrase naming the main topic of PREVIOUS
+- recent_topic: short phrase naming the main topic of RECENT
+- reason: one sentence explaining your decision
+- shift: true or false
+- confidence: how likely this is to be a shift, from 0 to 1. 0.1 means probably not, 0.9 means almost certainly, 0.5 means unsure
