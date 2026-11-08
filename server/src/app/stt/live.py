@@ -6,6 +6,7 @@ from app.stt.buffer import TranscriptBuffer
 from app.stt.silence import is_silent
 from app.stt.transcriber import Transcriber
 from app.stt.windower import AudioWindower, Window, owned_words
+from app.checkpoint import CheckpointGate
 
 
 class OutOfOrderChunk(Exception):
@@ -27,8 +28,10 @@ class LiveSession:
         self.buffer = TranscriptBuffer()
         self.next_seq = 0
         self._window_seq = 0
+        self.gate = CheckpointGate()
+        self.checking = False  # a checkpoint task is running
 
-    async def add_chunk(self, seq: int, samples: np.ndarray) -> None:
+    async def add_chunk(self, seq: int, samples: np.ndarray) -> list[TranscriptPiece]:
         if seq != self.next_seq:
             raise OutOfOrderChunk("Sequence out of order.")
 
@@ -53,7 +56,7 @@ class LiveSession:
         return []
     
 
-    async def _process(self, window: Window):
+    async def _process(self, window: Window) -> TranscriptPiece | None:
         seq = self._window_seq
         self._window_seq += 1
         

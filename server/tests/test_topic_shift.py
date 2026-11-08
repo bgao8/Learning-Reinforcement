@@ -73,3 +73,60 @@ async def test_invalid_output_twice_propagates():
     _, client = make(['{"shift": "yes"}', "not json"])
     with pytest.raises(InvalidOutput):
         await detect_shift(client, "a", "b")
+
+
+# --- run_checkpoint: gate + buffer + model, no database ---
+
+from app.stt.live import LiveSession
+from app.stt.transcriber import Word
+from app.topic_shift import run_checkpoint
+
+SHIFT = '{"previous_topic": "a", "recent_topic": "b", "reason": "r", "relation": "new_concept"}'
+SAME = '{"previous_topic": "a", "recent_topic": "a", "reason": "r", "relation": "more_detail"}'
+
+
+def live_until(seconds: int, start: int = 1) -> LiveSession:
+    """A LiveSession whose buffer has one word ending every second from start..seconds."""
+    live = LiveSession(transcriber=None)  # transcriber unused: we fill the buffer directly
+    live.buffer.add([Word(t - 0.5, float(t), f"w{t}") for t in range(start, seconds + 1)])
+    return live
+
+
+async def test_checkpoint_does_nothing_during_cooldown():
+    fake, client = make([])
+    assert await run_checkpoint(live_until(100), client) is None
+    assert fake.requests == []
+
+
+async def test_checkpoint_forces_length_quiz_without_model():
+    fake, client = make([])
+    live = live_until(600)
+    assert await run_checkpoint(live, client) == "length"
+    assert fake.requests == []
+    assert live.gate.decide(650) is None  # cooldown restarted
+
+
+async def test_checkpoint_shift_triggers_quiz_and_cooldown():
+    fake, client = make([SHIFT])
+    live = live_until(200)
+    assert await run_checkpoint(live, client) == "topic_shift"
+    content = fake.requests[0].messages[0].content
+    assert "w81" in content and "w200" in content  # PREVIOUS starts at 81, RECENT ends at 200
+    assert live.gate.decide(300) is None
+
+
+async def test_checkpoint_same_topic_is_no_quiz():
+    _, client = make([SAME])
+    assert await run_checkpoint(live_until(200), client) is None
+
+
+async def test_checkpoint_skips_when_model_is_down():
+    _, client = make([ModelUnavailable("ollama not running")])
+    assert await run_checkpoint(live_until(200), client) is None
+
+
+async def test_checkpoint_skips_silent_previous_minute():
+    fake, client = make([])
+    live = live_until(200, start=150)  # only the last ~50 s have words
+    assert await run_checkpoint(live, client) is None
+    assert fake.requests == []

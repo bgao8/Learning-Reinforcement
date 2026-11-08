@@ -1,3 +1,5 @@
+import asyncio
+import logging
 from datetime import UTC, datetime
 from uuid import UUID
 from functools import cache
@@ -8,14 +10,19 @@ from pydantic import BaseModel, ConfigDict
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app.db.models import Session, User, TranscriptChunk
-from app.db.session import get_db
+from app.db.models import Quiz, Session, User, TranscriptChunk
+from app.db.session import SessionLocal, get_db
+from app.llm import ModelClient, make_client
+from app.topic_shift import run_checkpoint
 
 from app.stt.factory import make_transcriber
 from app.stt.live import LiveSession, OutOfOrderChunk, TranscriptPiece
 from app.stt.transcriber import Transcriber
 
 live_sessions: dict[UUID, LiveSession] = {}
+# asyncio only keeps weak references to tasks; hold them here so they aren't garbage-collected mid-run
+_checkpoint_tasks: set[asyncio.Task] = set()
+log = logging.getLogger(__name__)
 
 
 SEND_EMAIL = "bgao2005@gmail.com"
@@ -46,6 +53,10 @@ def get_current_user(db: DbSession = Depends(get_db)) -> User:
 @cache
 def get_transcriber() -> Transcriber:
     return make_transcriber()
+
+@cache
+def get_shift_client() -> ModelClient:
+    return make_client("fast")
 
 # HTTP request routes
 @router.post("", response_model=SessionOut, status_code=201)
@@ -79,7 +90,7 @@ async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
     return session
 
 @router.post("/{session_id}/chunks", status_code=204)
-async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSession = Depends(get_db)):
+async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSession = Depends(get_db), shift_client: ModelClient = Depends(get_shift_client)):
     live = live_sessions.get(session_id)
     if live is None:
         raise HTTPException(status_code=409, detail="session is not recording")
@@ -94,6 +105,29 @@ async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSessi
         raise HTTPException(status_code=409, detail=f"expected seq {live.next_seq}")
 
     save_pieces(db, session_id, pieces)
+
+    # topic-shift check runs in the background so this request returns right away
+    if not live.checking:
+        live.checking = True
+        task = asyncio.create_task(checkpoint_task(live, shift_client, session_id))
+        _checkpoint_tasks.add(task)
+        task.add_done_callback(_checkpoint_tasks.discard)
+
+
+async def checkpoint_task(live: LiveSession, client: ModelClient, session_id: UUID) -> None:
+    try:
+        reason = await run_checkpoint(live, client)
+        if reason is not None:
+            # own DB session: the request's session is closed by the time this runs
+            with SessionLocal() as db:
+                db.add(Quiz(session_id=session_id, trigger_reason=reason))
+                db.commit()
+            log.info("quiz triggered for %s: %s", session_id, reason)
+    except Exception:
+        log.exception("checkpoint failed for %s", session_id)
+    finally:
+        live.checking = False
+
 
 def save_pieces(db: DbSession, session_id: UUID, pieces: list[TranscriptPiece]) -> None:
     for p in pieces:

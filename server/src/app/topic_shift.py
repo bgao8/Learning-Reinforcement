@@ -4,10 +4,14 @@ The model only classifies how RECENT relates to PREVIOUS; code decides which
 relations count as a shift. That keeps the model from applying its own idea of
 "shift" (see evals/topic_shift.jsonl and scripts/eval_topic_shift.py).
 """
+import logging
 from dataclasses import dataclass
 from pathlib import Path
 
-from app.llm import Message, ModelClient
+from app.llm import Message, ModelClient, ModelError
+from app.stt.live import LiveSession
+
+log = logging.getLogger(__name__)
 
 PROMPT = (Path(__file__).parent / "prompts" / "topic_shift_v3.txt").read_text()
 
@@ -49,3 +53,37 @@ async def detect_shift(client: ModelClient, previous: str, recent: str) -> Shift
         previous_topic=out["previous_topic"],
         recent_topic=out["recent_topic"],
     )
+
+
+async def run_checkpoint(live: LiveSession, client: ModelClient) -> str | None:
+    """One round of "should a quiz happen now?".
+
+    Returns the trigger_reason for a new quiz ("length" or "topic_shift"), or None.
+    Saving the quiz row is the caller's job; this only decides.
+    """
+    now = live.buffer.last_end
+    decision = live.gate.decide(now)
+
+    if decision is None:
+        return None
+
+    if decision == "length":
+        live.gate.mark_quiz(now)
+        return "length"
+
+    previous = live.buffer.between(now - 120, now - 60)
+    recent = live.buffer.last(60)
+    if not previous or not recent:
+        return None  # a silent minute: nothing to compare
+
+    try:
+        result = await detect_shift(client, previous, recent)
+    except ModelError as e:
+        log.warning("topic-shift check skipped: %s", e)
+        return None
+
+    if not result.shift:
+        return None
+
+    live.gate.mark_quiz(now)
+    return "topic_shift"
