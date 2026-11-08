@@ -1,16 +1,18 @@
 """Runs against the local Postgres. Every test is rolled back, so no rows are left behind."""
-from uuid import uuid4
+from uuid import UUID, uuid4
 
+import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session as DbSession
 
-from app.api.sessions import get_current_user
-from app.db.models import Session, User
+from app.api.sessions import get_current_user, get_transcriber, live_sessions
+from app.db.models import Session, TranscriptChunk, User
 from app.db.session import engine, get_db
 from app.main import app
+from app.stt.transcriber import SAMPLE_RATE, Word
 
 
 @pytest.fixture
@@ -35,12 +37,42 @@ def user(db):
     return user
 
 
+class FakeTranscriber:
+    """Says "hello" in the middle of every window, so no model is loaded."""
+
+    def __init__(self):
+        self.calls = 0
+
+    async def transcribe(self, samples):
+        return "hello"
+
+    async def transcribe_words(self, samples):
+        self.calls += 1
+        mid = len(samples) / SAMPLE_RATE / 2
+        return [Word(mid - 0.1, mid + 0.1, "hello")]
+
+
 @pytest.fixture
-def client(db, user):
+def fake():
+    return FakeTranscriber()
+
+
+@pytest.fixture
+def client(db, user, fake):
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: user
+    app.dependency_overrides[get_transcriber] = lambda: fake
     yield TestClient(app)
     app.dependency_overrides.clear()
+    live_sessions.clear()
+
+
+def audio(seconds: float, level: float = 0.1) -> bytes:
+    return np.full(round(seconds * SAMPLE_RATE), level, dtype=np.float32).tobytes()
+
+
+def start(client) -> str:
+    return client.post("/sessions", json={}).json()["session_id"]
 
 
 def test_create_returns_open_session(client):
@@ -89,3 +121,97 @@ def test_end_unknown_session_is_404(client):
 
 def test_end_invalid_id_is_422(client):
     assert client.patch("/sessions/not-a-uuid/end").status_code == 422
+
+
+def test_chunks_upload_in_order(client):
+    session_id = start(client)
+    for seq in range(3):
+        res = client.post(f"/sessions/{session_id}/chunks?seq={seq}", content=audio(5))
+        assert res.status_code == 204
+
+
+def test_chunks_reach_the_transcript(client, fake):
+    session_id = start(client)
+    for seq in range(3):
+        client.post(f"/sessions/{session_id}/chunks?seq={seq}", content=audio(5))
+    assert fake.calls == 2
+    assert live_sessions[UUID(session_id)].buffer.last(1000) == "hello hello"
+
+
+def test_wrong_seq_is_409_with_expected_seq(client):
+    session_id = start(client)
+    res = client.post(f"/sessions/{session_id}/chunks?seq=1", content=audio(5))
+    assert res.status_code == 409
+    assert res.json()["detail"] == "expected seq 0"
+
+
+def test_missing_seq_is_422(client):
+    session_id = start(client)
+    assert client.post(f"/sessions/{session_id}/chunks", content=audio(5)).status_code == 422
+
+
+def test_body_that_is_not_float32_is_400(client):
+    session_id = start(client)
+    res = client.post(f"/sessions/{session_id}/chunks?seq=0", content=b"\x00" * 7)
+    assert res.status_code == 400
+
+
+def test_empty_body_is_400(client):
+    session_id = start(client)
+    assert client.post(f"/sessions/{session_id}/chunks?seq=0", content=b"").status_code == 400
+
+
+def test_chunk_for_unknown_session_is_409(client):
+    assert client.post(f"/sessions/{uuid4()}/chunks?seq=0", content=audio(5)).status_code == 409
+
+
+def test_end_transcribes_the_tail_then_stops_accepting(client, fake):
+    session_id = start(client)
+    client.post(f"/sessions/{session_id}/chunks?seq=0", content=audio(3))
+    assert fake.calls == 0
+    assert client.patch(f"/sessions/{session_id}/end").status_code == 200
+    assert fake.calls == 1
+    assert UUID(session_id) not in live_sessions
+    res = client.post(f"/sessions/{session_id}/chunks?seq=1", content=audio(5))
+    assert res.status_code == 409
+
+
+def saved_rows(db, session_id):
+    return db.scalars(
+        select(TranscriptChunk)
+        .where(TranscriptChunk.session_id == UUID(session_id))
+        .order_by(TranscriptChunk.seq)
+    ).all()
+
+
+def test_uploads_save_transcript_rows(client, db):
+    session_id = start(client)
+    for seq in range(3):
+        client.post(f"/sessions/{session_id}/chunks?seq={seq}", content=audio(5))
+    rows = saved_rows(db, session_id)
+    assert [(r.seq, r.start_ts, r.end_ts, r.text_) for r in rows] == [
+        (0, 0, 5, "hello"),
+        (1, 5, 10, "hello"),
+    ]
+
+
+def test_end_saves_the_tail_row(client, db):
+    session_id = start(client)
+    client.post(f"/sessions/{session_id}/chunks?seq=0", content=audio(3))
+    assert saved_rows(db, session_id) == []
+    client.patch(f"/sessions/{session_id}/end")
+    rows = saved_rows(db, session_id)
+    assert [(r.seq, r.start_ts, r.end_ts) for r in rows] == [(0, 0, 3)]
+
+
+def test_rejected_chunk_saves_nothing(client, db):
+    session_id = start(client)
+    client.post(f"/sessions/{session_id}/chunks?seq=5", content=audio(10))
+    assert saved_rows(db, session_id) == []
+
+
+def test_silent_audio_saves_no_rows(client, db):
+    session_id = start(client)
+    client.post(f"/sessions/{session_id}/chunks?seq=0", content=audio(10, level=0.0))
+    client.patch(f"/sessions/{session_id}/end")
+    assert saved_rows(db, session_id) == []
