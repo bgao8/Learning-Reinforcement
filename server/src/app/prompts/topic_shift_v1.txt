@@ -14,4 +14,4 @@ Not a shift:
 Answer with JSON only:
 - reason: one sentence explaining your decision
 - shift: true or false
-- confidence: a number from 0 to 1 for how sure you are. Be objective here.
+- confidence: how likely is this to be a shift? 0.1 means probably not, 0.9 means almost certainly, 0.5 means unsure
