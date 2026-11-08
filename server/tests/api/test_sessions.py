@@ -9,7 +9,7 @@ from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session as DbSession
 
 from app.api.sessions import get_current_user, get_transcriber, live_sessions
-from app.db.models import Session, User
+from app.db.models import Session, TranscriptChunk, User
 from app.db.session import engine, get_db
 from app.main import app
 from app.stt.transcriber import SAMPLE_RATE, Word
@@ -174,3 +174,44 @@ def test_end_transcribes_the_tail_then_stops_accepting(client, fake):
     assert UUID(session_id) not in live_sessions
     res = client.post(f"/sessions/{session_id}/chunks?seq=1", content=audio(5))
     assert res.status_code == 409
+
+
+def saved_rows(db, session_id):
+    return db.scalars(
+        select(TranscriptChunk)
+        .where(TranscriptChunk.session_id == UUID(session_id))
+        .order_by(TranscriptChunk.seq)
+    ).all()
+
+
+def test_uploads_save_transcript_rows(client, db):
+    session_id = start(client)
+    for seq in range(3):
+        client.post(f"/sessions/{session_id}/chunks?seq={seq}", content=audio(5))
+    rows = saved_rows(db, session_id)
+    assert [(r.seq, r.start_ts, r.end_ts, r.text_) for r in rows] == [
+        (0, 0, 5, "hello"),
+        (1, 5, 10, "hello"),
+    ]
+
+
+def test_end_saves_the_tail_row(client, db):
+    session_id = start(client)
+    client.post(f"/sessions/{session_id}/chunks?seq=0", content=audio(3))
+    assert saved_rows(db, session_id) == []
+    client.patch(f"/sessions/{session_id}/end")
+    rows = saved_rows(db, session_id)
+    assert [(r.seq, r.start_ts, r.end_ts) for r in rows] == [(0, 0, 3)]
+
+
+def test_rejected_chunk_saves_nothing(client, db):
+    session_id = start(client)
+    client.post(f"/sessions/{session_id}/chunks?seq=5", content=audio(10))
+    assert saved_rows(db, session_id) == []
+
+
+def test_silent_audio_saves_no_rows(client, db):
+    session_id = start(client)
+    client.post(f"/sessions/{session_id}/chunks?seq=0", content=audio(10, level=0.0))
+    client.patch(f"/sessions/{session_id}/end")
+    assert saved_rows(db, session_id) == []

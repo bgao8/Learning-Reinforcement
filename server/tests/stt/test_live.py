@@ -79,3 +79,29 @@ async def test_finish_with_no_audio_does_nothing():
     fake = FakeTranscriber()
     await LiveSession(fake).finish()
     assert fake.calls == []
+
+
+async def test_add_chunk_returns_one_piece_per_window_with_words():
+    live = LiveSession(FakeTranscriber())
+    assert await live.add_chunk(0, loud(5)) == []
+    pieces = await live.add_chunk(1, loud(5))
+    assert [(p.seq, p.start, p.end, p.text) for p in pieces] == [(0, 0, 5, "word1")]
+
+
+async def test_silent_window_uses_up_its_seq():
+    live = LiveSession(FakeTranscriber())
+    await live.add_chunk(0, quiet(6))                 # window 0 (0–5 s) is silent
+    pieces = await live.add_chunk(1, loud(5))         # window 1 (5–10 s) has words
+    assert [p.seq for p in pieces] == [1]
+    assert pieces[0].start == 5
+
+
+async def test_finish_returns_the_tail_piece():
+    live = LiveSession(FakeTranscriber())
+    await live.add_chunk(0, loud(3))
+    pieces = await live.finish()
+    assert [(p.seq, p.start, p.end) for p in pieces] == [(0, 0, 3)]
+
+
+async def test_finish_with_no_audio_returns_empty_list():
+    assert await LiveSession(FakeTranscriber()).finish() == []
