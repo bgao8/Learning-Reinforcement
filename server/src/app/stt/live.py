@@ -28,8 +28,10 @@ class LiveSession:
         self.buffer = TranscriptBuffer()
         self.next_seq = 0
         self._window_seq = 0
-        self.gate = CheckpointGate()
+        self.gate = CheckpointGate(cooldown_s=30, force_s=240, check_every_s=15)
         self.checking = False  # a checkpoint task is running
+        self.topic_so_far: str | None = None
+        self.pending_shift = False
 
     async def add_chunk(self, seq: int, samples: np.ndarray) -> list[TranscriptPiece]:
         if seq != self.next_seq:

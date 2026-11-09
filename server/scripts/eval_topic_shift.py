@@ -32,7 +32,7 @@ async def main():
 
     for case in cases:
         start = time.perf_counter()
-        result = await detect_shift(client, case["previous"], case["recent"])
+        result = await detect_shift(client, case["previous"], case["recent"], case.get("topic_so_far"))
         times.append(time.perf_counter() - start)
         predicted, expected = result.shift, case["shift"]
 

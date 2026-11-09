@@ -5,6 +5,7 @@ may contain small errors.
 
 A shift means RECENT is mainly about a different topic or subtopic than PREVIOUS: the speaker finished one idea and started a distinct one.
 Signals include phrases like "now let's turn to", "next", "moving on", or a clearly different subject.
+TOPIC SO FAR is what the lecture has been about. A brief mention of something else, while RECENT is still mostly about TOPIC SO FAR, is not a shift.
 
 Not a shift:
 - more detail, examples, or a tangent on the same topic

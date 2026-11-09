@@ -13,7 +13,7 @@ from app.stt.live import LiveSession
 
 log = logging.getLogger(__name__)
 
-PROMPT = (Path(__file__).parent / "prompts" / "topic_shift_v3.txt").read_text()
+PROMPT = (Path(__file__).parent / "prompts" / "topic_shift_v4.txt").read_text()
 
 SHIFT_RELATIONS = frozenset({"new_concept", "different_subject"})
 SAME_TOPIC_RELATIONS = frozenset({"more_detail", "example", "tangent", "recap", "housekeeping"})
@@ -41,8 +41,10 @@ class ShiftResult:
     recent_topic: str
 
 
-async def detect_shift(client: ModelClient, previous: str, recent: str) -> ShiftResult:
+async def detect_shift(client: ModelClient, previous: str, recent: str, topic_so_far: str | None = None) -> ShiftResult:
     text = f"PREVIOUS\n{previous}\n\nRECENT\n{recent}"
+    if topic_so_far:
+        text = f"TOPIC SO FAR\n{topic_so_far}\n\n{text}"
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=SHIFT_SCHEMA)
 
     out = response.output
@@ -68,6 +70,7 @@ async def run_checkpoint(live: LiveSession, client: ModelClient) -> str | None:
         return None
 
     if decision == "length":
+        live.pending_shift = False  # a forced quiz clears a half-confirmed shift
         live.gate.mark_quiz(now)
         return "length"
 
@@ -77,13 +80,29 @@ async def run_checkpoint(live: LiveSession, client: ModelClient) -> str | None:
         return None  # a silent minute: nothing to compare
 
     try:
-        result = await detect_shift(client, previous, recent)
+        result = await detect_shift(client, previous, recent, live.topic_so_far)
     except ModelError as e:
         log.warning("topic-shift check skipped: %s", e)
         return None
 
+    log.info(
+        "topic check at %.0fs [so far: %r]: %r -> %r = %s (%s)",
+        now, live.topic_so_far, result.previous_topic, result.recent_topic, result.relation, result.reason,
+    )
+
+    if live.topic_so_far is None:
+        live.topic_so_far = result.previous_topic  # first check sets the anchor
+
     if not result.shift:
+        live.pending_shift = False  # a one-off: probably a passing mention
         return None
 
+    if not live.pending_shift:
+        live.pending_shift = True  # first shift answer: wait for the next check to agree
+        return None
+
+    # two shift answers in a row: confirmed
+    live.pending_shift = False
+    live.topic_so_far = result.recent_topic
     live.gate.mark_quiz(now)
     return "topic_shift"

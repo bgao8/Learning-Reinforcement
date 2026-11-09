@@ -77,6 +77,7 @@ async def test_invalid_output_twice_propagates():
 
 # --- run_checkpoint: gate + buffer + model, no database ---
 
+from app.checkpoint import CheckpointGate
 from app.stt.live import LiveSession
 from app.stt.transcriber import Word
 from app.topic_shift import run_checkpoint
@@ -88,8 +89,18 @@ SAME = '{"previous_topic": "a", "recent_topic": "a", "reason": "r", "relation": 
 def live_until(seconds: int, start: int = 1) -> LiveSession:
     """A LiveSession whose buffer has one word ending every second from start..seconds."""
     live = LiveSession(transcriber=None)  # transcriber unused: we fill the buffer directly
-    live.buffer.add([Word(t - 0.5, float(t), f"w{t}") for t in range(start, seconds + 1)])
+    live.gate = CheckpointGate()  # default timings, whatever LiveSession uses
+    grow(live, start, seconds)
     return live
+
+
+def grow(live: LiveSession, start: int, end: int) -> None:
+    """Add one word per second for start..end (lecture time moves forward)."""
+    live.buffer.add([Word(t - 0.5, float(t), f"w{t}") for t in range(start, end + 1)])
+
+
+def shift_to(topic: str) -> str:
+    return f'{{"previous_topic": "old", "recent_topic": "{topic}", "reason": "r", "relation": "new_concept"}}'
 
 
 async def test_checkpoint_does_nothing_during_cooldown():
@@ -106,13 +117,65 @@ async def test_checkpoint_forces_length_quiz_without_model():
     assert live.gate.decide(650) is None  # cooldown restarted
 
 
-async def test_checkpoint_shift_triggers_quiz_and_cooldown():
+async def test_one_shift_answer_waits_for_confirmation():
     fake, client = make([SHIFT])
     live = live_until(200)
-    assert await run_checkpoint(live, client) == "topic_shift"
+    assert await run_checkpoint(live, client) is None
+    assert live.pending_shift is True
     content = fake.requests[0].messages[0].content
     assert "w81" in content and "w200" in content  # PREVIOUS starts at 81, RECENT ends at 200
-    assert live.gate.decide(300) is None
+
+
+async def test_two_shift_answers_in_a_row_trigger_quiz_and_cooldown():
+    _, client = make([SHIFT, shift_to("quicksort")])
+    live = live_until(200)
+    assert await run_checkpoint(live, client) is None
+    grow(live, 201, 230)
+    assert await run_checkpoint(live, client) == "topic_shift"
+    assert live.pending_shift is False
+    assert live.topic_so_far == "quicksort"
+    assert live.gate.decide(300) is None  # cooldown
+
+
+async def test_shift_then_same_topic_is_a_passing_mention():
+    _, client = make([SHIFT, SAME])
+    live = live_until(200)
+    assert await run_checkpoint(live, client) is None
+    grow(live, 201, 230)
+    assert await run_checkpoint(live, client) is None
+    assert live.pending_shift is False
+
+
+async def test_first_check_sets_anchor_from_previous_topic():
+    _, client = make([SAME])
+    live = live_until(200)
+    await run_checkpoint(live, client)
+    assert live.topic_so_far == "a"
+
+
+async def test_anchor_is_sent_to_model_and_kept_without_shift():
+    fake, client = make([SAME])
+    live = live_until(200)
+    live.topic_so_far = "2024 civic review"
+    await run_checkpoint(live, client)
+    assert fake.requests[0].messages[0].content.startswith("TOPIC SO FAR\n2024 civic review")
+    assert live.topic_so_far == "2024 civic review"
+
+
+async def test_no_anchor_line_on_first_check():
+    fake, client = make([SAME])
+    await run_checkpoint(live_until(200), client)
+    assert "TOPIC SO FAR" not in fake.requests[0].messages[0].content
+
+
+async def test_length_quiz_clears_pending_shift():
+    _, client = make([SHIFT])
+    live = live_until(570)
+    assert await run_checkpoint(live, client) is None
+    assert live.pending_shift is True
+    grow(live, 571, 600)
+    assert await run_checkpoint(live, client) == "length"
+    assert live.pending_shift is False
 
 
 async def test_checkpoint_same_topic_is_no_quiz():
