@@ -44,4 +44,8 @@ def validate(text: str, schema: dict) -> dict:
         if not _matches(expected, value):
             raise InvalidOutput(f"field {prop}: expected {expected}", text)
 
+        allowed = schema["properties"][prop].get("enum")
+        if allowed is not None and value not in allowed:
+            raise InvalidOutput(f"field {prop}: {value!r} not one of {allowed}", text)
+
     return data

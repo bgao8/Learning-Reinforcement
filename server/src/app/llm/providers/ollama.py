@@ -24,7 +24,7 @@ class OllamaProvider:
             response = await self._client.chat(
                 model=request.model,
                 messages=messages,
-                options={"num_predict": request.max_tokens},
+                options={"num_predict": request.max_tokens, "temperature": 0.0},
                 **extra,
             )
 

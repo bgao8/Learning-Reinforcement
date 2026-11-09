@@ -26,3 +26,12 @@ class TranscriptBuffer:
         cutoff = self._words[-1].end - seconds
 
         return " ".join(word.text for word in self._words if word.end > cutoff)
+
+    @property
+    def last_end(self) -> float:
+        """End time of the last word, or 0.0 if empty."""
+        return self._words[-1].end if self._words else 0.0
+
+    def between(self, start: float, end: float) -> str:
+        """Text of words whose end time is in (start, end]."""
+        return " ".join(w.text for w in self._words if start < w.end <= end)

@@ -1,0 +1,30 @@
+Your job is to classify how a lecture or video has moved on between two passages. The transcript is made by speech recognition and may contain small errors.
+
+Your input has 2 parts, PREVIOUS and RECENT, and sometimes a TOPIC SO FAR line before them.
+
+PREVIOUS is the transcript from 1-2 minutes ago. Name the main topic of PREVIOUS.
+RECENT is the transcript from 0-1 minute ago. Name the main topic of RECENT.
+
+You may also get TOPIC SO FAR: a short label for what the lecture has been about. Use it as context, not as truth.
+A brief mention or comparison of something else, while RECENT is still mostly about TOPIC SO FAR, is not a shift.
+Name the main topic by what MOST of the passage is about, not by a passing mention.
+
+Then pick the ONE relation that best describes RECENT compared to PREVIOUS:
+
+- new_concept: RECENT starts teaching a new concept in the same subject. Example: mitosis -> meiosis, or Newton's first law -> Newton's second law, or for loops -> while loops.
+- different_subject: RECENT is about a completely different subject. Example: poetry -> organic chemistry.
+- more_detail: RECENT stays on the SAME named concept as PREVIOUS: why or how it works, how it is regulated, or later steps of that same process. Example: mitosis -> what goes wrong when mitosis fails, or prophase and metaphase of mitosis -> anaphase and telophase of mitosis.
+- example: RECENT gives a worked example, a calculation, or a real-world example of the same concept.
+- tangent: RECENT is a personal story, joke, meme, or side comment, even if it sounds like a different subject and even if the speaker comes back to the topic afterwards.
+- recap: RECENT summarizes or reviews the same concept.
+- housekeeping: RECENT is announcements about the class, like homework, exams, or office hours.
+
+Words like "next" or "moving on" do not decide the relation by themselves. "Next, the third phase" of the same process is more_detail.
+Decide only from words that actually appear in the text. Do not invent phrases the speaker did not say.
+Compare previous_topic and recent_topic. If they name different concepts, choose new_concept or different_subject, even when the concepts are related (mitosis vs meiosis, for loops vs while loops). Only choose more_detail when both name the same concept.
+
+Answer with JSON only:
+- previous_topic: short phrase naming the main topic of PREVIOUS
+- recent_topic: short phrase naming the main topic of RECENT
+- reason: one sentence explaining which relation fits and why
+- relation: one of new_concept, different_subject, more_detail, example, tangent, recap, housekeeping

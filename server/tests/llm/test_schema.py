@@ -69,3 +69,19 @@ def test_float_is_not_an_integer():
 def test_int_is_not_a_boolean():
     with pytest.raises(InvalidOutput, match="field ok: expected boolean"):
         validate('{"score": 0.8, "feedback": "x", "ok": 1}', SCHEMA)
+
+
+ENUM_SCHEMA = {
+    "type": "object",
+    "properties": {"color": {"type": "string", "enum": ["red", "blue"]}},
+    "required": ["color"],
+}
+
+
+def test_enum_value_passes():
+    assert validate('{"color": "red"}', ENUM_SCHEMA) == {"color": "red"}
+
+
+def test_value_outside_enum_is_rejected():
+    with pytest.raises(InvalidOutput, match="field color: 'green' not one of"):
+        validate('{"color": "green"}', ENUM_SCHEMA)

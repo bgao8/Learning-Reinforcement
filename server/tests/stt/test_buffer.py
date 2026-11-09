@@ -46,3 +46,34 @@ def test_trimming_happens_across_separate_adds():
     buffer.add([Word(0.0, 1.0, "old")])
     buffer.add([Word(20.0, 21.0, "new")])
     assert buffer.last(10_000) == "new"
+
+
+def test_last_end_is_end_of_newest_word():
+    assert filled().last_end == 44.6
+
+
+def test_last_end_of_empty_buffer_is_zero():
+    assert TranscriptBuffer().last_end == 0.0
+
+
+def test_between_excludes_start_includes_end():
+    # word ends: 40.5, 40.8, 41.5, 44.6
+    assert filled().between(40.5, 41.5) == "and demand"
+
+
+def test_between_with_no_words_in_range_is_empty():
+    assert filled().between(0.0, 30.0) == ""
+    assert TranscriptBuffer().between(0.0, 100.0) == ""
+
+
+def test_between_and_last_split_without_overlap_or_gaps():
+    # one word ending every second, 1..200
+    buffer = TranscriptBuffer()
+    buffer.add([Word(t - 0.5, float(t), f"w{t}") for t in range(1, 201)])
+    now = buffer.last_end
+
+    previous = buffer.between(now - 120, now - 60).split()
+    recent = buffer.last(60).split()
+
+    assert previous == [f"w{t}" for t in range(81, 141)]
+    assert recent == [f"w{t}" for t in range(141, 201)]
