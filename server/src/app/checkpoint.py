@@ -10,8 +10,11 @@ Decision = Literal["check", "length"] | None
 
 class CheckpointGate:
     def __init__(self, cooldown_s=180.0, force_s=600.0, check_every_s=30.0):
+        # cooldown doesn't allow quizzes for 180 sec by default
         self.cooldown_s = cooldown_s
+        # forces a quiz at 600 sec by default
         self.force_s = force_s
+        # checks transcript for topic shift every 30 sec by default
         self.check_every_s = check_every_s
         self._last_quiz = 0.0
         self._last_check: float | None = None

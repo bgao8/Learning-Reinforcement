@@ -28,7 +28,7 @@ class LiveSession:
         self.buffer = TranscriptBuffer()
         self.next_seq = 0
         self._window_seq = 0
-        self.gate = CheckpointGate(cooldown_s=30, force_s=240, check_every_s=15)
+        self.gate = CheckpointGate()
         self.checking = False  # a checkpoint task is running
         self.topic_so_far: str | None = None
         self.pending_shift = False
