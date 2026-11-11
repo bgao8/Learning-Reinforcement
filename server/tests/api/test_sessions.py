@@ -20,28 +20,6 @@ from app.main import app
 from app.stt.transcriber import SAMPLE_RATE, Word
 
 
-@pytest.fixture
-def db():
-    try:
-        connection = engine.connect()
-    except OperationalError:
-        pytest.skip("Postgres isn't running")
-    transaction = connection.begin()
-    session = DbSession(bind=connection, join_transaction_mode="create_savepoint")
-    yield session
-    session.close()
-    transaction.rollback()
-    connection.close()
-
-
-@pytest.fixture
-def user(db):
-    user = User(user_name="Test", email=f"{uuid4()}@example.com")
-    db.add(user)
-    db.flush()
-    return user
-
-
 class FakeTranscriber:
     """Says "hello" in the middle of every window, so no model is loaded."""
 
@@ -233,16 +211,9 @@ def use_test_db(db, monkeypatch):
     monkeypatch.setattr(sessions_api, "SessionLocal", test_session)
 
 
-def session_row(db, user) -> Session:
-    row = Session(user_id=user.user_id)
-    db.add(row)
-    db.flush()
-    return row
-
-
 @pytest.mark.anyio
-async def test_checkpoint_task_saves_quiz_with_span_and_topic(db, user, use_test_db, monkeypatch):
-    row = session_row(db, user)
+async def test_checkpoint_task_saves_quiz_with_span_and_topic(db, recording, use_test_db, monkeypatch):
+    row = recording
     trigger = QuizTrigger("topic_shift", span_start=0.0, span_end=140.0, topic="civic")
 
     async def fake_run_checkpoint(live, client):
@@ -259,8 +230,8 @@ async def test_checkpoint_task_saves_quiz_with_span_and_topic(db, user, use_test
 
 
 @pytest.mark.anyio
-async def test_checkpoint_task_saves_nothing_without_trigger(db, user, use_test_db, monkeypatch):
-    row = session_row(db, user)
+async def test_checkpoint_task_saves_nothing_without_trigger(db, recording, use_test_db, monkeypatch):
+    row = recording
 
     async def fake_run_checkpoint(live, client):
         return None
