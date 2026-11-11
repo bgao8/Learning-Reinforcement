@@ -41,6 +41,14 @@ class ShiftResult:
     recent_topic: str
 
 
+@dataclass(frozen=True)
+class QuizTrigger:
+    reason: str
+    span_start: float
+    span_end: float
+    topic: str | None
+    
+
 async def detect_shift(client: ModelClient, previous: str, recent: str, topic_so_far: str | None = None) -> ShiftResult:
     text = f"PREVIOUS\n{previous}\n\nRECENT\n{recent}"
     if topic_so_far:
@@ -57,7 +65,7 @@ async def detect_shift(client: ModelClient, previous: str, recent: str, topic_so
     )
 
 
-async def run_checkpoint(live: LiveSession, client: ModelClient) -> str | None:
+async def run_checkpoint(live: LiveSession, client: ModelClient) -> QuizTrigger | None:
     """One round of "should a quiz happen now?".
 
     Returns the trigger_reason for a new quiz ("length" or "topic_shift"), or None.
@@ -70,9 +78,10 @@ async def run_checkpoint(live: LiveSession, client: ModelClient) -> str | None:
         return None
 
     if decision == "length":
-        live.pending_shift = False  # a forced quiz clears a half-confirmed shift
+        trigger = QuizTrigger("length", live.gate.last_quiz, now, live.topic_so_far)
+        live.pending_shift = False
         live.gate.mark_quiz(now)
-        return "length"
+        return trigger
 
     previous = live.buffer.between(now - 120, now - 60)
     recent = live.buffer.last(60)
@@ -99,10 +108,13 @@ async def run_checkpoint(live: LiveSession, client: ModelClient) -> str | None:
 
     if not live.pending_shift:
         live.pending_shift = True  # first shift answer: wait for the next check to agree
+        live.pending_end = now - 60
         return None
 
+
     # two shift answers in a row: confirmed
-    live.pending_shift = False
+    trigger = QuizTrigger("topic_shift", live.gate.last_quiz, live.pending_end, live.topic_so_far)
     live.topic_so_far = result.recent_topic
+    live.pending_shift = False
     live.gate.mark_quiz(now)
-    return "topic_shift"
+    return trigger

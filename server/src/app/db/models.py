@@ -112,6 +112,9 @@ class Quiz(Base):
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )
     trigger_reason: Mapped[str | None] = mapped_column(Text)
+    span_start_ts: Mapped[float | None] = mapped_column(Float)
+    span_end_ts: Mapped[float | None] = mapped_column(Float)
+    topic: Mapped[str | None] = mapped_column(Text)
 
 
 class Question(Base):

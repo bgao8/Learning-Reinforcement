@@ -85,3 +85,62 @@ def test_enum_value_passes():
 def test_value_outside_enum_is_rejected():
     with pytest.raises(InvalidOutput, match="field color: 'green' not one of"):
         validate('{"color": "green"}', ENUM_SCHEMA)
+
+
+# Nested: an array of objects, like the question-generation output.
+NESTED_SCHEMA = {
+    "type": "object",
+    "properties": {
+        "items": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "kind": {"type": "string", "enum": ["a", "b"]},
+                    "tags": {"type": "array", "items": {"type": "string"}},
+                },
+                "required": ["kind", "tags"],
+            },
+        },
+    },
+    "required": ["items"],
+}
+
+
+def test_nested_valid_passes():
+    text = '{"items": [{"kind": "a", "tags": ["x", "y"]}, {"kind": "b", "tags": []}]}'
+    assert validate(text, NESTED_SCHEMA)["items"][1] == {"kind": "b", "tags": []}
+
+
+def test_empty_array_passes():
+    assert validate('{"items": []}', NESTED_SCHEMA) == {"items": []}
+
+
+def test_non_list_is_not_an_array():
+    with pytest.raises(InvalidOutput, match=r"field items: expected array"):
+        validate('{"items": {"kind": "a"}}', NESTED_SCHEMA)
+
+
+def test_array_item_must_be_object():
+    with pytest.raises(InvalidOutput, match=r"field items\[0\]: expected object"):
+        validate('{"items": ["a"]}', NESTED_SCHEMA)
+
+
+def test_nested_missing_field_names_its_path():
+    with pytest.raises(InvalidOutput, match=r"missing field: items\[1\]\.tags"):
+        validate('{"items": [{"kind": "a", "tags": []}, {"kind": "b"}]}', NESTED_SCHEMA)
+
+
+def test_nested_extra_field_rejected():
+    with pytest.raises(InvalidOutput, match=r"extra field: items\[0\]\.color"):
+        validate('{"items": [{"kind": "a", "tags": [], "color": "red"}]}', NESTED_SCHEMA)
+
+
+def test_nested_enum_checked():
+    with pytest.raises(InvalidOutput, match=r"field items\[0\]\.kind: 'c' not one of"):
+        validate('{"items": [{"kind": "c", "tags": []}]}', NESTED_SCHEMA)
+
+
+def test_array_of_strings_item_type_checked():
+    with pytest.raises(InvalidOutput, match=r"field items\[0\]\.tags\[1\]: expected string"):
+        validate('{"items": [{"kind": "a", "tags": ["x", 2]}]}', NESTED_SCHEMA)

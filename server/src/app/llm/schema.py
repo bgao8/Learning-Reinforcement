@@ -18,8 +18,46 @@ def _matches(expected, value):
     elif expected == "boolean":
         return isinstance(value, bool)
 
+    elif expected == "object":
+        return isinstance(value, dict)
+
+    elif expected == "array":
+        return isinstance(value, list)
+
     # unknown type: reject rather than let unchecked data through
     return False
+
+
+def _join(path, name):
+    return f"{path}.{name}" if path else name
+
+
+def _check(schema: dict, value, path: str, text: str) -> None:
+    """Check one value against its (sub)schema, then recurse into objects and arrays.
+
+    `path` names where we are, e.g. "questions[0].prompt", so errors point at the bad spot.
+    """
+    expected = schema.get("type")
+    if not _matches(expected, value):
+        raise InvalidOutput(f"field {path}: expected {expected}", text)
+
+    allowed = schema.get("enum")
+    if allowed is not None and value not in allowed:
+        raise InvalidOutput(f"field {path}: {value!r} not one of {allowed}", text)
+
+    if expected == "object":
+        props = schema.get("properties", {})
+        for name in schema.get("required", []):
+            if name not in value:
+                raise InvalidOutput(f"missing field: {_join(path, name)}", text)
+        for name, item in value.items():
+            if name not in props:
+                raise InvalidOutput(f"extra field: {_join(path, name)}", text)
+            _check(props[name], item, _join(path, name), text)
+
+    elif expected == "array" and "items" in schema:
+        for i, item in enumerate(value):
+            _check(schema["items"], item, f"{path}[{i}]", text)
 
 
 def validate(text: str, schema: dict) -> dict:
@@ -31,21 +69,5 @@ def validate(text: str, schema: dict) -> dict:
     if not isinstance(data, dict):
         raise InvalidOutput("expected a JSON object", text)
 
-    for name in schema.get("required", []):
-        if name not in data:
-            raise InvalidOutput(f"missing field: {name}", text)
-
-    for name in data:
-        if name not in schema.get("properties", {}):
-            raise InvalidOutput(f"extra field: {name}", text)
-
-    for prop, value in data.items():
-        expected = schema["properties"][prop]["type"]
-        if not _matches(expected, value):
-            raise InvalidOutput(f"field {prop}: expected {expected}", text)
-
-        allowed = schema["properties"][prop].get("enum")
-        if allowed is not None and value not in allowed:
-            raise InvalidOutput(f"field {prop}: {value!r} not one of {allowed}", text)
-
+    _check(schema, data, "", text)
     return data

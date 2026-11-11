@@ -58,11 +58,12 @@ If either slice is empty (a silent minute), the check is skipped.
   Recording is never affected.
 
 ### Runtime wiring (`server/src/app/api/sessions.py`)
-After each chunk upload is saved, `upload_chunk` starts `checkpoint_task` with
-`asyncio.create_task`. The 204 returns immediately instead of waiting ~4 s for the model.
+After each chunk upload is saved, `upload_chunk` starts `checkpoint_task` in the background
+via `_spawn`. The 204 returns immediately instead of waiting ~4 s for the model.
 - `LiveSession.checking` allows one check at a time per session.
 - The task opens its own `SessionLocal()`, because the request's DB session is closed by then.
-- Tasks are held in a module-level set so they aren't garbage-collected mid-run.
+- `_spawn` holds tasks in a module-level set so they aren't garbage-collected mid-run.
+- On a trigger, `checkpoint_task` saves the quiz and hands off to `questions_task` (see Quiz below).
 
 ### Model choice and evaluation
 Topic shift uses the local **fast** client (Ollama, `temperature: 0`), currently `qwen2.5:7b`.
@@ -96,13 +97,66 @@ Lessons:
 - The eval set is small (each case is 5–10 points) and the prompts were partly tuned on it.
   Add held-out cases from real transcripts, including car-review-style comparisons with a
   `topic_so_far` field.
-- A quiz row records only `triggered_at` (wall clock) and `trigger_reason`, not which span of
-  the lecture or which topic it covers. #19 needs both (a migration: lecture-time start/end, topic).
 - Pausing the video when a quiz triggers is not implemented (#20); showing the quiz is #21.
 - ~4 s per check on qwen shares the GPU with Whisper. Measure that transcription doesn't fall
   behind on 8 GB machines; llama3.2:3b is the low-RAM fallback.
 
 
-## Quiz
-- How to extract from logic base
-- Prompt
+## Quiz (questions) — #19
+
+Every question stores the transcript span it's grounded in, so grading (#22) and review can
+show the student exactly where the answer came from.
+
+### Flow (`server/src/app/api/sessions.py`, `server/src/app/jobs/questions.py`)
+1. `checkpoint_task` saves the `quizzes` row (trigger reason, lecture-time span, topic), then
+   hands off to `questions_task` and releases `live.checking` immediately. Generation is a
+   separate task so the LLM call never blocks the next topic-shift check.
+2. `load_span` picks the session's chunks whose midpoint is in `[span_start, span_end)` and
+   joins them into one `Span` (text, first/last chunk seq, start/end ts). No chunks → no
+   questions, log a warning.
+3. `generate_questions` calls the **smart** client (Sonnet) with TOPIC (if known) + TRANSCRIPT
+   and `QUESTIONS_SCHEMA`; keeps at most 3.
+4. `keep_grounded` drops anything the transcript can't back up (below).
+5. `save_questions` writes one `questions` row per kept question with `quiz_id`, `options`
+   (JSONB, null for short answer) and all `span_*` fields.
+
+Failure anywhere in 2–5 is logged; the quiz row stays, with no questions. No DB session is
+held during the LLM call.
+
+### Prompt (`server/src/app/prompts/questions_v1.txt`)
+- 2–3 questions, only from TRANSCRIPT, testing main ideas (why/how), not trivia; skip filler.
+- `evidence` is first in the schema so that the model commits to a word-for-word quote
+  before writing the question (intent, not measured).
+- Multiple choice: exactly 4 options, `answer_key` is one of them. Short answer: no options.
+- Fewer or zero questions is allowed when the span is thin.
+
+### Grounding filter (`keep_grounded`)
+A question is kept only if:
+- its evidence, normalized (lowercase, punctuation → space, whitespace collapsed), appears
+  in the normalized span **on whole-word boundaries** (both sides space-padded, so "lucose"
+  doesn't match "glucose"). Whisper output is mostly unpunctuated lowercase and the model
+  adds both, so normalizing both sides is what lets exact quotes match;
+- the evidence isn't empty (`"" in s` is always True);
+- multiple choice has ≥ 2 options containing `answer_key`; short answer has no options.
+
+### Model settings and measurements
+`smart_max_tokens = 16000` (adaptive thinking counts toward it; 1024 truncated the JSON),
+`smart_timeout_s = 90`. On a real 150 s span (388 words): **7.4 s, 1775 in / 594 out tokens**,
+about 1¢ per quiz on Sonnet 5. Accuracy was good on manual review.
+
+Replay any transcript with `server/scripts/try_questions.py` (`--session <id> --start --end`,
+or a quiz id, optionally `--save`).
+
+### Known limits / next
+- **#20 should pause the video when the questions are ready, not when the quiz triggers.**
+  The trigger already lands 60–90 s after the topic ends, so the extra 7.4 s is invisible as
+  long as the lecture keeps playing until the card shows.
+- Speculative generation (start at the first shift answer, when span and topic are already
+  fixed) was considered and deferred: cost is negligible (~1¢ per wasted call) but it adds
+  cancellation/staleness handling and doesn't help `length` triggers. Revisit if the wait is
+  noticeable after #20/#21.
+- Other latency levers if needed: lower `effort` (needs plumbing through `Request`), Haiku or
+  Sonnet 5.5, judged by the eval harness (#27).
+- No eval set for question quality yet; the grounding filter only checks the quote exists,
+  not that the answer follows from it.
+- A quiz can end up with zero questions; the UI (#21) should skip it.
