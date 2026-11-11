@@ -8,8 +8,13 @@ from sqlalchemy import select
 from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session as DbSession
 
-from app.api.sessions import get_current_user, get_transcriber, live_sessions
-from app.db.models import Session, TranscriptChunk, User
+from contextlib import contextmanager
+
+import app.api.sessions as sessions_api
+from app.api.sessions import checkpoint_task, get_current_user, get_transcriber, live_sessions
+from app.db.models import Quiz, Session, TranscriptChunk, User
+from app.stt.live import LiveSession
+from app.topic_shift import QuizTrigger
 from app.db.session import engine, get_db
 from app.main import app
 from app.stt.transcriber import SAMPLE_RATE, Word
@@ -215,3 +220,55 @@ def test_silent_audio_saves_no_rows(client, db):
     client.post(f"/sessions/{session_id}/chunks?seq=0", content=audio(10, level=0.0))
     client.patch(f"/sessions/{session_id}/end")
     assert saved_rows(db, session_id) == []
+
+
+# --- checkpoint_task: saves what run_checkpoint decided ---
+
+@pytest.fixture
+def use_test_db(db, monkeypatch):
+    """checkpoint_task opens its own SessionLocal(); point it at the rolled-back test session."""
+    @contextmanager
+    def test_session():
+        yield db
+    monkeypatch.setattr(sessions_api, "SessionLocal", test_session)
+
+
+def session_row(db, user) -> Session:
+    row = Session(user_id=user.user_id)
+    db.add(row)
+    db.flush()
+    return row
+
+
+@pytest.mark.anyio
+async def test_checkpoint_task_saves_quiz_with_span_and_topic(db, user, use_test_db, monkeypatch):
+    row = session_row(db, user)
+    trigger = QuizTrigger("topic_shift", span_start=0.0, span_end=140.0, topic="civic")
+
+    async def fake_run_checkpoint(live, client):
+        return trigger
+    monkeypatch.setattr(sessions_api, "run_checkpoint", fake_run_checkpoint)
+
+    live = LiveSession(transcriber=None)
+    live.checking = True
+    await checkpoint_task(live, client=None, session_id=row.session_id)
+
+    quiz = db.scalars(select(Quiz).where(Quiz.session_id == row.session_id)).one()
+    assert (quiz.trigger_reason, quiz.span_start_ts, quiz.span_end_ts, quiz.topic) == ("topic_shift", 0.0, 140.0, "civic")
+    assert live.checking is False
+
+
+@pytest.mark.anyio
+async def test_checkpoint_task_saves_nothing_without_trigger(db, user, use_test_db, monkeypatch):
+    row = session_row(db, user)
+
+    async def fake_run_checkpoint(live, client):
+        return None
+    monkeypatch.setattr(sessions_api, "run_checkpoint", fake_run_checkpoint)
+
+    live = LiveSession(transcriber=None)
+    live.checking = True
+    await checkpoint_task(live, client=None, session_id=row.session_id)
+
+    assert db.scalars(select(Quiz).where(Quiz.session_id == row.session_id)).all() == []
+    assert live.checking is False

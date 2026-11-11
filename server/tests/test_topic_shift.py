@@ -80,7 +80,7 @@ async def test_invalid_output_twice_propagates():
 from app.checkpoint import CheckpointGate
 from app.stt.live import LiveSession
 from app.stt.transcriber import Word
-from app.topic_shift import run_checkpoint
+from app.topic_shift import QuizTrigger, run_checkpoint
 
 SHIFT = '{"previous_topic": "a", "recent_topic": "b", "reason": "r", "relation": "new_concept"}'
 SAME = '{"previous_topic": "a", "recent_topic": "a", "reason": "r", "relation": "more_detail"}'
@@ -112,9 +112,18 @@ async def test_checkpoint_does_nothing_during_cooldown():
 async def test_checkpoint_forces_length_quiz_without_model():
     fake, client = make([])
     live = live_until(600)
-    assert await run_checkpoint(live, client) == "length"
+    trigger = await run_checkpoint(live, client)
+    assert trigger.reason == "length"
     assert fake.requests == []
     assert live.gate.decide(650) is None  # cooldown restarted
+
+
+async def test_length_span_runs_from_last_quiz_to_now():
+    _, client = make([])
+    live = live_until(600)
+    live.topic_so_far = "civic"
+    trigger = await run_checkpoint(live, client)
+    assert trigger == QuizTrigger("length", span_start=0.0, span_end=600.0, topic="civic")
 
 
 async def test_one_shift_answer_waits_for_confirmation():
@@ -131,10 +140,41 @@ async def test_two_shift_answers_in_a_row_trigger_quiz_and_cooldown():
     live = live_until(200)
     assert await run_checkpoint(live, client) is None
     grow(live, 201, 230)
-    assert await run_checkpoint(live, client) == "topic_shift"
+    trigger = await run_checkpoint(live, client)
+    assert trigger.reason == "topic_shift"
     assert live.pending_shift is False
     assert live.topic_so_far == "quicksort"
     assert live.gate.decide(300) is None  # cooldown
+
+
+async def test_shift_span_ends_where_first_shift_answer_saw_new_topic():
+    _, client = make([SHIFT, shift_to("quicksort")])
+    live = live_until(200)
+    await run_checkpoint(live, client)  # first shift answer at 200: RECENT started at 140
+    grow(live, 201, 230)
+    trigger = await run_checkpoint(live, client)  # confirmed at 230
+    assert trigger.span_start == 0.0
+    assert trigger.span_end == 140.0  # not 170: that would include 30 s of the new topic
+
+
+async def test_shift_quiz_is_about_the_old_topic():
+    _, client = make([SHIFT, shift_to("quicksort")])
+    live = live_until(200)
+    live.topic_so_far = "civic"
+    await run_checkpoint(live, client)
+    grow(live, 201, 230)
+    trigger = await run_checkpoint(live, client)
+    assert trigger.topic == "civic"
+    assert live.topic_so_far == "quicksort"
+
+
+async def test_span_starts_at_previous_quiz():
+    _, client = make([])
+    live = live_until(600)
+    await run_checkpoint(live, client)  # length quiz at 600
+    grow(live, 601, 1200)
+    trigger = await run_checkpoint(live, client)  # next length quiz at 1200
+    assert (trigger.span_start, trigger.span_end) == (600.0, 1200.0)
 
 
 async def test_shift_then_same_topic_is_a_passing_mention():
@@ -174,7 +214,8 @@ async def test_length_quiz_clears_pending_shift():
     assert await run_checkpoint(live, client) is None
     assert live.pending_shift is True
     grow(live, 571, 600)
-    assert await run_checkpoint(live, client) == "length"
+    trigger = await run_checkpoint(live, client)
+    assert trigger.reason == "length"
     assert live.pending_shift is False
 
 

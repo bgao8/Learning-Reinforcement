@@ -116,13 +116,19 @@ async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSessi
 
 async def checkpoint_task(live: LiveSession, client: ModelClient, session_id: UUID) -> None:
     try:
-        reason = await run_checkpoint(live, client)
-        if reason is not None:
+        trigger = await run_checkpoint(live, client)
+        if trigger is not None:
             # own DB session: the request's session is closed by the time this runs
             with SessionLocal() as db:
-                db.add(Quiz(session_id=session_id, trigger_reason=reason))
+                db.add(Quiz(
+                    session_id=session_id, 
+                    trigger_reason=trigger.reason, 
+                    span_start_ts=trigger.span_start, 
+                    span_end_ts=trigger.span_end, 
+                    topic=trigger.topic)
+                )
                 db.commit()
-            log.info("quiz triggered for %s: %s", session_id, reason)
+            log.info("quiz triggered for %s: %s", session_id, trigger.reason)
     except Exception:
         log.exception("checkpoint failed for %s", session_id)
     finally:
