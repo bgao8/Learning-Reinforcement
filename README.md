@@ -1,7 +1,9 @@
 # FrizzAI (WIP)
 A learning reinforcement tool that quizzes you on the lecture you're watching, as you watch it, and adapts questions based on what you already know.
 
+## Status
 **MVP in progress.**
+End-to-end recording to quiz generation from Electron to Postgres is functional.
 
 ## User Story
 As a student watching a recorded lecture, I want to be quizzed on what I just heard, at sensible moments, so that I actively recall the material and spend my review time on the concepts I'm still weak on.
@@ -51,5 +53,5 @@ The tradeoff is that ScreenCaptureKit is limited to macOS.
 
 **Done when:** a 20-minute lecture produces grounded questions at sensible points, results persist, and the next session adapts.
 
-## Status
-macOS only. Early development: the Electron client lives in `client/`, the FastAPI backend in `server/`. Setup instructions will land with the architecture diagram and demo.
+## Setup
+macOS only. The Electron client lives in `client/`, the FastAPI backend in `server/`. Setup instructions will land with the architecture diagram and demo.
