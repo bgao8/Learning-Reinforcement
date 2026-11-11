@@ -19,6 +19,10 @@ class CheckpointGate:
         self._last_quiz = 0.0
         self._last_check: float | None = None
 
+    @property
+    def last_quiz(self) -> float:
+        return self._last_quiz
+
     def mark_quiz(self, now: float) -> None:
         """Caller reports that a quiz was created at `now`."""
         self._last_quiz = now

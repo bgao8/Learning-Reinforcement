@@ -32,6 +32,7 @@ class LiveSession:
         self.checking = False  # a checkpoint task is running
         self.topic_so_far: str | None = None
         self.pending_shift = False
+        self.pending_end: float | None = None
 
     async def add_chunk(self, seq: int, samples: np.ndarray) -> list[TranscriptPiece]:
         if seq != self.next_seq:
