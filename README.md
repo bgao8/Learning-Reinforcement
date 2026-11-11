@@ -15,14 +15,12 @@ A small overlay runs on top of whatever you're watching. It:
 5. Adapts future questions to reinforce topics you're still weak on.
 
 **Why system audio?**
-- Platform APIs (like YouTube's) lock functionality to one site. Capturing system audio makes it universal to all websites, downloaded videos, and even video calls (Zoom, Meet).
-
-The tradeoff is that ScreenCaptureKit is limited to macOS.
+- Platform APIs (like YouTube's) lock functionality to one site. Capturing system audio makes it universal to all websites, recorded lectures, video conferencing platforms (Zoom, Meet), etc.
 
 ## Stack
 - **Audio ingestion:** Apple ScreenCaptureKit
 - **Transcription:** Whisper, run locally on Apple Silicon (OpenAI Whisper API as fallback)
-- **LLMs:** Claude Sonnet 5 for question generation and grading; small local models (Ollama / MLX) for topic-shift detection and embeddings
+- **LLMs:** Claude Sonnet 5 for question generation and grading; Qwen2.5:7b running locally via Ollama for topic-shift detection and embeddings
 - **Backend:** FastAPI, SQLAlchemy, Alembic
 - **Data:** Postgres + pgvector
 - **Frontend:** Electron.js (Node.js)
@@ -31,7 +29,7 @@ The tradeoff is that ScreenCaptureKit is limited to macOS.
 
 ## Design Decisions
 - **Grounded questions.** Questions are generated only from the transcript of what was actually said, so the LLM quizzes you on the lecture, not on whatever it thinks the topic should contain.
-- **Checkpoints, not timers.** Quizzes trigger on transcript length plus topic shifts, so questions land at natural breaks instead of mid-sentence.
+- **Checkpoints, not timers.** Quizzes trigger on transcript length and topic shifts, so questions land at natural breaks instead of mid-sentence.
 - **Elo-style mastery per concept.** Each answer updates a score for (you, concept), weighted by question difficulty. Future questions target low-mastery concepts.
 - **Hybrid local + API models.** A provider-agnostic model layer routes each task to the cheapest model that is good enough: high-frequency work (transcription, topic shifts, embeddings) runs locally; quality-critical work (questions, grading) goes to Claude. The split is decided by evals, not guesswork.
 - **Concept dedup with pgvector.** Concepts extracted from different lectures are matched by embedding similarity, so "gradient descent" in one video and "GD" in another share one mastery score.
