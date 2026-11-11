@@ -5,7 +5,7 @@ from sqlalchemy.orm import Session as DbSession
 from uuid import UUID
 from pathlib import Path
 
-from app.db.models import TranscriptChunk
+from app.db.models import Question, TranscriptChunk
 from app.llm import Message, ModelClient
 
 @dataclass(frozen=True)
@@ -109,3 +109,21 @@ def keep_grounded(questions: list[GeneratedQuestion], span_text: str) -> list[Ge
         if evidence and f" {evidence} " in span and _well_formed(q):
             kept.append(q)
     return kept
+
+
+def save_questions(db: DbSession, session_id: UUID, quiz_id: UUID, span: Span, questions: list[GeneratedQuestion]) -> None:
+    """Add one Question row per question, each carrying the span it's grounded in. The caller commits."""
+    for q in questions:
+        db.add(Question(
+            session_id=session_id,
+            quiz_id=quiz_id,
+            prompt=q.prompt,
+            answer_key=q.answer_key,
+            question_type=q.question_type,
+            options=q.options or None,  # null for short_answer
+            span_text=span.text,
+            span_start_chunk=span.start_chunk,
+            span_end_chunk=span.end_chunk,
+            span_start_ts=span.start_ts,
+            span_end_ts=span.end_ts,
+        ))

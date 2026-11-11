@@ -11,8 +11,13 @@ from sqlalchemy.orm import Session as DbSession
 from contextlib import contextmanager
 
 import app.api.sessions as sessions_api
-from app.api.sessions import checkpoint_task, get_current_user, get_transcriber, live_sessions
-from app.db.models import Quiz, Session, TranscriptChunk, User
+import json
+
+from app.api.sessions import checkpoint_task, get_current_user, get_smart_client, get_transcriber, live_sessions, questions_task
+from app.db.models import Question, Quiz, Session, TranscriptChunk, User
+from app.llm.client import ModelClient
+from app.llm.errors import ModelUnavailable
+from app.llm.providers.fake import FakeProvider
 from app.stt.live import LiveSession
 from app.topic_shift import QuizTrigger
 from app.db.session import engine, get_db
@@ -45,6 +50,7 @@ def client(db, user, fake):
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: user
     app.dependency_overrides[get_transcriber] = lambda: fake
+    app.dependency_overrides[get_smart_client] = lambda: None  # real one needs an API key
     yield TestClient(app)
     app.dependency_overrides.clear()
     live_sessions.clear()
@@ -211,8 +217,18 @@ def use_test_db(db, monkeypatch):
     monkeypatch.setattr(sessions_api, "SessionLocal", test_session)
 
 
+@pytest.fixture
+def spawned(monkeypatch):
+    """Capture coroutines checkpoint_task hands to _spawn instead of running them in the background."""
+    coros = []
+    monkeypatch.setattr(sessions_api, "_spawn", coros.append)
+    yield coros
+    for coro in coros:
+        coro.close()  # never awaited; close to silence the "never awaited" warning
+
+
 @pytest.mark.anyio
-async def test_checkpoint_task_saves_quiz_with_span_and_topic(db, recording, use_test_db, monkeypatch):
+async def test_checkpoint_task_saves_quiz_with_span_and_topic(db, recording, use_test_db, spawned, monkeypatch):
     row = recording
     trigger = QuizTrigger("topic_shift", span_start=0.0, span_end=140.0, topic="civic")
 
@@ -222,7 +238,7 @@ async def test_checkpoint_task_saves_quiz_with_span_and_topic(db, recording, use
 
     live = LiveSession(transcriber=None)
     live.checking = True
-    await checkpoint_task(live, client=None, session_id=row.session_id)
+    await checkpoint_task(live, client=None, smart_client=None, session_id=row.session_id)
 
     quiz = db.scalars(select(Quiz).where(Quiz.session_id == row.session_id)).one()
     assert (quiz.trigger_reason, quiz.span_start_ts, quiz.span_end_ts, quiz.topic) == ("topic_shift", 0.0, 140.0, "civic")
@@ -230,7 +246,7 @@ async def test_checkpoint_task_saves_quiz_with_span_and_topic(db, recording, use
 
 
 @pytest.mark.anyio
-async def test_checkpoint_task_saves_nothing_without_trigger(db, recording, use_test_db, monkeypatch):
+async def test_checkpoint_task_saves_nothing_without_trigger(db, recording, use_test_db, spawned, monkeypatch):
     row = recording
 
     async def fake_run_checkpoint(live, client):
@@ -239,7 +255,131 @@ async def test_checkpoint_task_saves_nothing_without_trigger(db, recording, use_
 
     live = LiveSession(transcriber=None)
     live.checking = True
-    await checkpoint_task(live, client=None, session_id=row.session_id)
+    await checkpoint_task(live, client=None, smart_client=None, session_id=row.session_id)
 
     assert db.scalars(select(Quiz).where(Quiz.session_id == row.session_id)).all() == []
     assert live.checking is False
+    assert spawned == []
+
+
+@pytest.mark.anyio
+async def test_checkpoint_task_hands_off_questions_and_releases_checking(db, recording, use_test_db, spawned, monkeypatch):
+    """Question generation runs as its own task, so live.checking is released without waiting on the LLM."""
+    trigger = QuizTrigger("length", span_start=0.0, span_end=30.0, topic=None)
+
+    async def fake_run_checkpoint(live, client):
+        return trigger
+    monkeypatch.setattr(sessions_api, "run_checkpoint", fake_run_checkpoint)
+
+    live = LiveSession(transcriber=None)
+    live.checking = True
+    await checkpoint_task(live, client=None, smart_client=None, session_id=recording.session_id)
+
+    assert live.checking is False
+    assert len(spawned) == 1
+    assert spawned[0].cr_code is questions_task.__code__
+    quiz = db.scalars(select(Quiz).where(Quiz.session_id == recording.session_id)).one()
+    assert spawned[0].cr_frame.f_locals["quiz_id"] == quiz.quiz_id
+
+
+# --- questions_task: span -> generate -> keep_grounded -> Question rows ---
+
+SPAN_CHUNKS = [
+    (0, 0.0, 5.0, "so glycolysis splits glucose"),
+    (1, 5.0, 10.0, "into two pyruvate"),
+    (2, 30.0, 35.0, "now the krebs cycle"),  # outside [0, 10)
+]
+
+
+def add_chunks(db, session_id, chunks):
+    for seq, start, end, text in chunks:
+        db.add(TranscriptChunk(session_id=session_id, seq=seq, start_ts=start, end_ts=end, text_=text))
+    db.flush()
+
+
+def make_quiz(db, session_id) -> Quiz:
+    quiz = Quiz(session_id=session_id, trigger_reason="length", span_start_ts=0.0, span_end_ts=10.0)
+    db.add(quiz)
+    db.flush()
+    return quiz
+
+
+def llm(*scripted):
+    return ModelClient(provider=FakeProvider(list(scripted)), model="fake-model")
+
+
+def answer(*questions):
+    return json.dumps({"questions": list(questions)})
+
+
+def question(evidence="glycolysis splits glucose", prompt="What does glycolysis split?", question_type="short_answer", options=(), answer_key="glucose"):
+    return {"evidence": evidence, "prompt": prompt, "question_type": question_type, "options": list(options), "answer_key": answer_key}
+
+
+def saved_questions(db, quiz_id):
+    return db.scalars(select(Question).where(Question.quiz_id == quiz_id).order_by(Question.created_at, Question.prompt)).all()
+
+
+TRIGGER = QuizTrigger("length", span_start=0.0, span_end=10.0, topic="glycolysis")
+
+
+@pytest.mark.anyio
+async def test_questions_task_saves_question_with_its_span(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+
+    await questions_task(llm(answer(question())), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    [row] = saved_questions(db, quiz.quiz_id)
+    assert (row.session_id, row.prompt, row.answer_key, row.question_type, row.options) == (
+        recording.session_id, "What does glycolysis split?", "glucose", "short_answer", None,
+    )
+    assert (row.span_text, row.span_start_chunk, row.span_end_chunk, row.span_start_ts, row.span_end_ts) == (
+        "so glycolysis splits glucose into two pyruvate", 0, 1, 0.0, 10.0,
+    )
+
+
+@pytest.mark.anyio
+async def test_questions_task_stores_multiple_choice_options_as_list(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+    mc = question(question_type="multiple_choice", options=["glucose", "pyruvate", "ATP"])
+
+    await questions_task(llm(answer(mc)), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    [row] = saved_questions(db, quiz.quiz_id)
+    assert row.options == ["glucose", "pyruvate", "ATP"]
+
+
+@pytest.mark.anyio
+async def test_questions_task_drops_ungrounded_questions(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+    invented = question(evidence="glycolysis makes 36 ATP", prompt="How much ATP?")
+    outside_span = question(evidence="now the krebs cycle", prompt="What comes next?")
+
+    await questions_task(llm(answer(question(), invented, outside_span)), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert [r.prompt for r in saved_questions(db, quiz.quiz_id)] == ["What does glycolysis split?"]
+
+
+@pytest.mark.anyio
+async def test_questions_task_without_transcript_skips_the_llm(db, recording, use_test_db):
+    quiz = make_quiz(db, recording.session_id)
+    client = llm()  # empty script: any call raises
+
+    await questions_task(client, recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert client.provider.requests == []
+    assert saved_questions(db, quiz.quiz_id) == []
+
+
+@pytest.mark.anyio
+async def test_questions_task_failure_keeps_quiz(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+
+    await questions_task(llm(ModelUnavailable("down")), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert saved_questions(db, quiz.quiz_id) == []
+    assert db.get(Quiz, quiz.quiz_id) is not None

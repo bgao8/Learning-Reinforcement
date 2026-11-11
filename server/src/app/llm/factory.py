@@ -17,7 +17,7 @@ def make_provider(name: str, s: Settings):
 
 def make_client(role: str, s: Settings = default_settings) -> ModelClient:
     if role == "smart":
-        return ModelClient(make_provider(s.smart_provider, s), model=s.smart_model, timeout_s=s.smart_timeout_s)
+        return ModelClient(make_provider(s.smart_provider, s), model=s.smart_model, max_tokens=s.smart_max_tokens, timeout_s=s.smart_timeout_s)
     if role == "fast":
-        return ModelClient(make_provider(s.fast_provider, s), model=s.fast_model, timeout_s=s.fast_timeout_s)
+        return ModelClient(make_provider(s.fast_provider, s), model=s.fast_model, max_tokens=s.fast_max_tokens, timeout_s=s.fast_timeout_s)
     raise ValueError(f"unknown role {role!r} (expected 'smart' or 'fast')")

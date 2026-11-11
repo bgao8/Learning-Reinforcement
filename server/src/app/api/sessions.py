@@ -1,5 +1,6 @@
 import asyncio
 import logging
+import time
 from datetime import UTC, datetime
 from uuid import UUID
 from functools import cache
@@ -11,9 +12,10 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import Quiz, Session, User, TranscriptChunk
+from app.jobs.questions import generate_questions, keep_grounded, load_span, save_questions
 from app.db.session import SessionLocal, get_db
 from app.llm import ModelClient, make_client
-from app.topic_shift import run_checkpoint
+from app.topic_shift import QuizTrigger, run_checkpoint
 
 from app.stt.factory import make_transcriber
 from app.stt.live import LiveSession, OutOfOrderChunk, TranscriptPiece
@@ -21,7 +23,7 @@ from app.stt.transcriber import Transcriber
 
 live_sessions: dict[UUID, LiveSession] = {}
 # asyncio only keeps weak references to tasks; hold them here so they aren't garbage-collected mid-run
-_checkpoint_tasks: set[asyncio.Task] = set()
+_background_tasks: set[asyncio.Task] = set()
 log = logging.getLogger(__name__)
 
 
@@ -58,6 +60,17 @@ def get_transcriber() -> Transcriber:
 def get_shift_client() -> ModelClient:
     return make_client("fast")
 
+@cache
+def get_smart_client() -> ModelClient:
+    return make_client("smart")
+
+
+def _spawn(coro) -> None:
+    """Run coro in the background, holding a strong reference until it finishes."""
+    task = asyncio.create_task(coro)
+    _background_tasks.add(task)
+    task.add_done_callback(_background_tasks.discard)
+
 # HTTP request routes
 @router.post("", response_model=SessionOut, status_code=201)
 def create_session(body: SessionCreate, db: DbSession = Depends(get_db), user: User = Depends(get_current_user), transcriber: Transcriber = Depends(get_transcriber)):
@@ -90,7 +103,7 @@ async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
     return session
 
 @router.post("/{session_id}/chunks", status_code=204)
-async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSession = Depends(get_db), shift_client: ModelClient = Depends(get_shift_client)):
+async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSession = Depends(get_db), shift_client: ModelClient = Depends(get_shift_client), smart_client: ModelClient = Depends(get_smart_client)):
     live = live_sessions.get(session_id)
     if live is None:
         raise HTTPException(status_code=409, detail="session is not recording")
@@ -109,30 +122,56 @@ async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSessi
     # topic-shift check runs in the background so this request returns right away
     if not live.checking:
         live.checking = True
-        task = asyncio.create_task(checkpoint_task(live, shift_client, session_id))
-        _checkpoint_tasks.add(task)
-        task.add_done_callback(_checkpoint_tasks.discard)
+        _spawn(checkpoint_task(live, shift_client, smart_client, session_id))
 
 
-async def checkpoint_task(live: LiveSession, client: ModelClient, session_id: UUID) -> None:
+async def checkpoint_task(live: LiveSession, client: ModelClient, smart_client: ModelClient, session_id: UUID) -> None:
     try:
         trigger = await run_checkpoint(live, client)
         if trigger is not None:
             # own DB session: the request's session is closed by the time this runs
             with SessionLocal() as db:
-                db.add(Quiz(
-                    session_id=session_id, 
-                    trigger_reason=trigger.reason, 
-                    span_start_ts=trigger.span_start, 
-                    span_end_ts=trigger.span_end, 
-                    topic=trigger.topic)
+                quiz = Quiz(
+                    session_id=session_id,
+                    trigger_reason=trigger.reason,
+                    span_start_ts=trigger.span_start,
+                    span_end_ts=trigger.span_end,
+                    topic=trigger.topic,
                 )
+                db.add(quiz)
                 db.commit()
+                quiz_id = quiz.quiz_id
             log.info("quiz triggered for %s: %s", session_id, trigger.reason)
+            # separate task so the slow LLM call doesn't hold live.checking and skip shift checks
+            _spawn(questions_task(smart_client, session_id, quiz_id, trigger))
     except Exception:
         log.exception("checkpoint failed for %s", session_id)
     finally:
         live.checking = False
+
+
+async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, trigger: QuizTrigger) -> None:
+    """Generate, filter and save the quiz's questions. On any failure the quiz row stays, with no questions."""
+    try:
+        with SessionLocal() as db:
+            span = load_span(db, session_id, trigger.span_start, trigger.span_end)
+        if span is None:
+            log.warning("quiz %s: no transcript in span, no questions", quiz_id)
+            return
+
+        # no DB session held during the LLM call
+        started = time.perf_counter()
+        generated = await generate_questions(client, span, trigger.topic)
+        elapsed = time.perf_counter() - started
+
+        kept = keep_grounded(generated, span.text)
+        log.info("quiz %s: generated %d questions in %.1fs, kept %d", quiz_id, len(generated), elapsed, len(kept))
+
+        with SessionLocal() as db:
+            save_questions(db, session_id, quiz_id, span, kept)
+            db.commit()
+    except Exception:
+        log.exception("question generation failed for quiz %s", quiz_id)
 
 
 def save_pieces(db: DbSession, session_id: UUID, pieces: list[TranscriptPiece]) -> None:
