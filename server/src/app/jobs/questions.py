@@ -1,4 +1,5 @@
 from dataclasses import dataclass
+import re
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 from uuid import UUID
@@ -74,12 +75,37 @@ async def generate_questions(client: ModelClient, span: Span, topic: str | None)
     if topic:
         text = f"TOPIC\n{topic}\n\n{text}"
 
-    output = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
+    response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
 
     questions = []
-    for q in output["questions"][:3]:
+    for q in response.output["questions"][:3]:
         gen_q = GeneratedQuestion(prompt=q["prompt"], question_type=q["question_type"], options=q["options"], answer_key=q["answer_key"], evidence=q["evidence"])
         questions.append(gen_q)
 
     return questions
-    
+
+
+_PUNCT = re.compile(r"[^\w\s]")
+_SPACE = re.compile(r"\s+")
+
+
+def _normalize(s: str) -> str:
+    # punctuation -> space (so "two-step" matches Whisper's "two step"), then collapse
+    return _SPACE.sub(" ", _PUNCT.sub(" ", s.lower())).strip()
+
+
+def _well_formed(q: GeneratedQuestion) -> bool:
+    if q.question_type == "multiple_choice":
+        return len(q.options) >= 2 and q.answer_key in q.options
+    return not q.options  # short_answer
+
+
+def keep_grounded(questions: list[GeneratedQuestion], span_text: str) -> list[GeneratedQuestion]:
+    # pad with spaces so evidence only matches on whole-word boundaries
+    span = f" {_normalize(span_text)} "
+    kept = []
+    for q in questions:
+        evidence = _normalize(q.evidence)
+        if evidence and f" {evidence} " in span and _well_formed(q):
+            kept.append(q)
+    return kept

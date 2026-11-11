@@ -1,11 +1,10 @@
 """Spec for keep_grounded(questions, span_text) -> list[GeneratedQuestion].
 
-Not written yet: this file fails on import until it exists in app.jobs.questions.
-
 Drops any question the transcript can't back up:
 - evidence must appear in the span text. Compare after normalizing both sides:
   lowercase, punctuation removed, runs of whitespace collapsed to one space.
   (Whisper output is mostly lowercase with no punctuation; the model tends to add both.)
+  Matches must fall on whole-word boundaries.
 - empty or whitespace-only evidence is dropped
 - multiple_choice needs at least 2 options and answer_key must be one of them
 - short_answer must have no options
@@ -42,6 +41,11 @@ def test_invented_evidence_is_dropped():
 
 def test_paraphrased_evidence_is_dropped():
     assert keep_grounded([gq(evidence="glucose is split by glycolysis")], SPAN_TEXT) == []
+
+
+def test_partial_word_is_dropped():
+    # "lucose" is inside "glucose" but isn't a word in the span
+    assert keep_grounded([gq(evidence="lucose")], SPAN_TEXT) == []
 
 
 def test_empty_evidence_is_dropped():
