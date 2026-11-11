@@ -1,9 +1,6 @@
 # FrizzAI (WIP)
 A learning reinforcement tool that quizzes you on the lecture you're watching, as you watch it, and adapts questions based on what you already know.
 
-## User Story
-As a student watching a recorded lecture, I want to be quizzed on what I just heard, at sensible moments, so that I actively recall the material and spend my review time on the concepts I'm still weak on.
-
 ## The Problem
 In a classroom, a teacher stops to check understanding: they ask questions, notice confusion, and revisit weak spots. 
 
