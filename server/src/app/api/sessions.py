@@ -8,13 +8,13 @@ import numpy as np
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
-from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import Quiz, Session, User, TranscriptChunk
 from app.jobs.questions import generate_questions, keep_grounded, load_span, save_questions
 from app.db.session import SessionLocal, get_db
-from app.llm import ModelClient, make_client
+from app.api.deps import get_current_user, get_shift_client, get_smart_client
+from app.llm import ModelClient
 from app.topic_shift import QuizTrigger, run_checkpoint
 
 from app.stt.factory import make_transcriber
@@ -27,7 +27,6 @@ _background_tasks: set[asyncio.Task] = set()
 log = logging.getLogger(__name__)
 
 
-SEND_EMAIL = "bgao2005@gmail.com"
 router = APIRouter(prefix="/sessions", tags=["sessions"])
 
 
@@ -45,24 +44,10 @@ class SessionOut(BaseModel):
     started_at: datetime
     ended_at: datetime | None
 
-def get_current_user(db: DbSession = Depends(get_db)) -> User:
-    user = db.scalar(select(User).where(User.email == SEND_EMAIL))
-    if user is None:
-        raise HTTPException(status_code=500, detail="seed user missing; run scripts/seed.py")
-    
-    return user
-
 @cache
 def get_transcriber() -> Transcriber:
     return make_transcriber()
 
-@cache
-def get_shift_client() -> ModelClient:
-    return make_client("fast")
-
-@cache
-def get_smart_client() -> ModelClient:
-    return make_client("smart")
 
 
 def _spawn(coro) -> None:

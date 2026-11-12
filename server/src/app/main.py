@@ -9,11 +9,13 @@ from fastapi.middleware.cors import CORSMiddleware
 from app.db.models import User
 from app.db.session import SessionLocal
 from app.api.sessions import router as sessions_router
+from app.api.questions import router as questions_router
 
 # FastAPI server, receives requests and sends responses
 app = FastAPI(title="Learning Reinforcement API")
 # give FastAPI the sessions routes from sessions.py
 app.include_router(sessions_router)
+app.include_router(questions_router)
 
 app.add_middleware(
     CORSMiddleware,

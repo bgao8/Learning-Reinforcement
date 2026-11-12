@@ -13,7 +13,8 @@ from contextlib import contextmanager
 import app.api.sessions as sessions_api
 import json
 
-from app.api.sessions import checkpoint_task, get_current_user, get_smart_client, get_transcriber, live_sessions, questions_task
+from app.api.deps import get_current_user, get_smart_client
+from app.api.sessions import checkpoint_task, get_transcriber, live_sessions, questions_task
 from app.db.models import Question, Quiz, Session, TranscriptChunk, User
 from app.llm.client import ModelClient
 from app.llm.errors import ModelUnavailable
