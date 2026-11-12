@@ -18,7 +18,7 @@ Each task goes to the cheapest model that is good enough for it, decided by meas
 
 ## Frontend
 - Electron.js (Node.js)
-- Desktop controls: nut.js
+- Desktop controls: a small Swift helper (`client/native/mediakey.swift`) posts the play/pause media key (#20). nut.js was the original plan, but its official prebuilt packages are no longer free, and one key press doesn't justify a native npm dependency. An osascript/JXA version was tried first and failed silently: JXA can't bridge `NSEvent.cgEvent`, so it posted an empty event. Revisit nut.js if broader desktop control is needed.
 
 ## Deployment
 - AWS (single provider; specific services TBD)

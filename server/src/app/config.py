@@ -28,6 +28,12 @@ class Settings(BaseSettings):
     stt_model: str = "mlx-community/whisper-large-v3-turbo"
     stt_language: str = "en"
 
+    # CheckpointGate timings, in lecture seconds. Short on purpose: frequent quizzes keep
+    # the learner paying attention. Earliest topic-shift quiz = cooldown + one check.
+    gate_cooldown_s: float = 120.0      # no checks or quizzes this soon after the last quiz
+    gate_check_every_s: float = 30.0    # at most one topic-shift model call per this many seconds
+    gate_force_s: float = 360.0         # force a "length" quiz if none happened for this long
+
     @property
     def sqlalchemy_url(self) -> str:
         """SQLAlchemy needs the driver named explicitly; we use psycopg (v3)."""

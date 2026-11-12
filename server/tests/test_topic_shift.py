@@ -89,7 +89,7 @@ SAME = '{"previous_topic": "a", "recent_topic": "a", "reason": "r", "relation": 
 def live_until(seconds: int, start: int = 1) -> LiveSession:
     """A LiveSession whose buffer has one word ending every second from start..seconds."""
     live = LiveSession(transcriber=None)  # transcriber unused: we fill the buffer directly
-    live.gate = CheckpointGate()  # default timings, whatever LiveSession uses
+    live.gate = CheckpointGate(cooldown_s=180, force_s=600, check_every_s=30)  # the times below assume these
     grow(live, start, seconds)
     return live
 

@@ -1,6 +1,7 @@
 import numpy as np
 import pytest
 
+from app.config import settings
 from app.stt.live import LiveSession, OutOfOrderChunk
 from app.stt.transcriber import SAMPLE_RATE, Word
 
@@ -105,3 +106,11 @@ async def test_finish_returns_the_tail_piece():
 
 async def test_finish_with_no_audio_returns_empty_list():
     assert await LiveSession(FakeTranscriber()).finish() == []
+
+
+async def test_gate_timings_come_from_settings(monkeypatch):
+    monkeypatch.setattr(settings, "gate_cooldown_s", 11.0)
+    monkeypatch.setattr(settings, "gate_force_s", 22.0)
+    monkeypatch.setattr(settings, "gate_check_every_s", 3.0)
+    gate = LiveSession(FakeTranscriber()).gate
+    assert (gate.cooldown_s, gate.force_s, gate.check_every_s) == (11.0, 22.0, 3.0)

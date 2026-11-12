@@ -2,6 +2,8 @@
 
 All times are lecture time in seconds (TranscriptBuffer.last_end). The session
 start counts as the last quiz, so nothing happens during the first cooldown.
+The timings have no defaults here: LiveSession passes them from config.py
+(gate_cooldown_s, gate_force_s, gate_check_every_s), overridable in .env.
 """
 from typing import Literal
 
@@ -9,12 +11,12 @@ Decision = Literal["check", "length"] | None
 
 
 class CheckpointGate:
-    def __init__(self, cooldown_s=180.0, force_s=600.0, check_every_s=30.0):
-        # cooldown doesn't allow quizzes for 180 sec by default
+    def __init__(self, cooldown_s: float, force_s: float, check_every_s: float):
+        # no checks or quizzes until this long after the last quiz
         self.cooldown_s = cooldown_s
-        # forces a quiz at 600 sec by default
+        # force a "length" quiz once this long has passed without one
         self.force_s = force_s
-        # checks transcript for topic shift every 30 sec by default
+        # ask the topic-shift model at most this often
         self.check_every_s = check_every_s
         self._last_quiz = 0.0
         self._last_check: float | None = None
