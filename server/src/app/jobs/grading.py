@@ -14,7 +14,7 @@ PROMPT = (Path(__file__).parent.parent / "prompts" / "grading_v1.txt").read_text
 GRADE_SCHEMA = {
     "type": "object",
     "properties": {
-        "reason": {"type": "string"},  # first: weigh the answer before naming a verdict
+        "reason": {"type": "string"},  # first: compare the answer with the key before writing the verdict
         "verdict": {"type": "string", "enum": ["correct", "partially_correct", "incorrect"]},
         "feedback": {"type": "string"},  # 1-2 sentences shown to the student
     },
