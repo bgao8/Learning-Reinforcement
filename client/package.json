@@ -4,7 +4,8 @@
   "description": "",
   "main": "main.js",
   "scripts": {
-    "start": "electron ."
+    "start": "electron .",
+    "build:native": "swiftc -O native/mediakey.swift -o native/mediakey"
   },
   "keywords": [],
   "author": "",

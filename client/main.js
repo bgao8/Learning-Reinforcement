@@ -1,4 +1,4 @@
-const {app, BrowserWindow, desktopCapturer, ipcMain, session, globalShortcut } = require("electron")
+const {app, BrowserWindow, desktopCapturer, ipcMain, session, globalShortcut, systemPreferences } = require("electron")
 const path = require("node:path")
 
 let clickThrough = false
@@ -24,6 +24,12 @@ function createWindow() {
 
 
 app.whenReady().then(() => {
+    // Accessibility lets native/mediakey post the play/pause key (#20). Passing true shows
+    // the macOS prompt if it's missing. The app still works without it; videos just won't
+    // auto-pause. macOS applies a new grant only after the launching app restarts.
+    const trusted = systemPreferences.isTrustedAccessibilityClient(true)
+    console.log(`[main] accessibility ${trusted ? "granted" : "missing (auto-pause disabled until granted and relaunched)"}`)
+
     const ok = globalShortcut.register("CommandOrControl+Shift+K", () => {
         if (!win || win.isDestroyed()) { return }
         clickThrough = !clickThrough
