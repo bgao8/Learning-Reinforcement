@@ -8,8 +8,8 @@ How to grade:
 - Judge whether the answer shows the understanding the question asks for, using TRANSCRIPT and ANSWER KEY as the reference. Do not reward or penalize facts that go beyond what the lecture said.
 - Accept paraphrases, synonyms, informal wording, and spelling mistakes. Meaning matters, not wording.
 - correct: the answer contains the key idea of ANSWER KEY and nothing that contradicts it.
-- partially_correct: the answer is on the right track but incomplete or vague, or mixes a correct idea with a wrong one.
-- incorrect: the answer misses the key idea, is wrong, or doesn't answer the question.
+- partially_correct: the answer is on the right track but incomplete or vague, with nothing that contradicts the lecture.
+- incorrect: the answer misses the key idea, is wrong, contradicts something the lecture states (even if part of the answer is right), or doesn't answer the question. If part of the answer was right, say so in the feedback.
 
 Fields:
 - reason: a short private note weighing the answer against ANSWER KEY. Write it before deciding.
