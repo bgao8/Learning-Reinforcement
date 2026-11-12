@@ -58,6 +58,23 @@ function queueUpload(rec, samples) {
 }
 
 
+// #20: is something playing right now? Read by media.js before pressing ⏯, which is a toggle.
+// A paused video sends digital silence, so any batch above the floor means "playing".
+const LOUD_FLOOR = 0.0003          // same RMS floor as the server's silence gate (stt/silence.py)
+const AUDIBLE_WINDOW_MS = 1500     // speech has short gaps, so look back a little
+let lastLoudAt = 0
+
+function batchRms(samples) {
+    let sum = 0
+    for (let i = 0; i < samples.length; i++) sum += samples[i] * samples[i]
+    return Math.sqrt(sum / samples.length)
+}
+
+function isAudible() {
+    return recording !== null && performance.now() - lastLoudAt < AUDIBLE_WINDOW_MS
+}
+
+
 const btn = document.getElementById("toggle-record")
 let recording = null
 
@@ -132,7 +149,10 @@ async function start() {
         sink.connect(context.destination)
 
         const rec = { pending: [], pendingLen: 0, seq: 0, uploads: Promise.resolve(), sessionId: null }
+        lastLoudAt = 0
         node.port.onmessage = (e) => {
+            // each batch is 4096 samples = 256 ms at 16 kHz
+            if (batchRms(e.data) >= LOUD_FLOOR) lastLoudAt = performance.now()
             rec.pending.push(e.data)
             rec.pendingLen += e.data.length
             if (rec.sessionId && rec.pendingLen >= CHUNK) {

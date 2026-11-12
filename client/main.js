@@ -1,5 +1,9 @@
 const {app, BrowserWindow, desktopCapturer, ipcMain, session, globalShortcut, systemPreferences } = require("electron")
 const path = require("node:path")
+const { execFile } = require("node:child_process")
+
+// presses the system play/pause key; built from native/mediakey.swift (npm run build:native)
+const MEDIAKEY = path.join(__dirname, "native", "mediakey")
 
 let clickThrough = false
 let win = null
@@ -53,6 +57,20 @@ app.whenReady().then(() => {
         }
         win.focus()
     })
+
+    // press ⏯ once (#20). Never throws: resolves { ok } or { ok: false, reason } so the
+    // renderer can log why and keep the quiz working without auto-pause.
+    ipcMain.handle("media-toggle", () => new Promise((resolve) => {
+        execFile(MEDIAKEY, (err, _stdout, stderr) => {
+            if (!err) return resolve({ ok: true })
+            const reason =
+                err.code === "ENOENT" ? "native/mediakey not built (run npm run build:native)"
+                : err.code === 2 ? "accessibility permission missing"
+                : (stderr.trim() || err.message)
+            console.error(`[main] media-toggle failed: ${reason}`)
+            resolve({ ok: false, reason })
+        })
+    }))
 
     session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
         try {
