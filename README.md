@@ -46,6 +46,6 @@ A small overlay runs on top of whatever you're watching. It:
 
 ## Status
 **MVP in progress.**
-End-to-end recording to quiz generation from Electron to Postgres is functional.
+The core loop works end to end. App listens to a video, detects topic shifts, generates a quiz and pops up a quiz card, pauses playback, grades each answer, and resumes playback.
 
-macOS only. The Electron client lives in `client/`, the FastAPI backend in `server/`. Setup instructions will land with the architecture diagram and demo.
+macOS on Apple Silicon only. The Electron client lives in `client/`, the FastAPI backend in `server/`. Setup instructions will land with the architecture diagram and demo.
