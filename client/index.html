@@ -14,6 +14,34 @@
                 Cmd + Shift + K to toggle click-through
             </div>
         </div>
+
+        <!-- question card: hidden until quiz.js has questions to show -->
+        <div id="quiz-card" class="panel card" hidden>
+            <div class="card-header">
+                <span id="quiz-topic"></span>
+                <span id="quiz-progress"></span>
+            </div>
+
+            <div id="quiz-ask">
+                <p id="quiz-prompt"></p>
+                <div id="quiz-options"></div>
+                <textarea id="quiz-text" rows="3" placeholder="Your answer"></textarea>
+                <div class="card-actions">
+                    <button id="quiz-skip" type="button">Skip</button>
+                    <button id="quiz-submit" type="button">Submit</button>
+                </div>
+            </div>
+
+            <div id="quiz-result" hidden>
+                <p id="quiz-verdict"></p>
+                <p id="quiz-feedback"></p>
+                <div class="card-actions">
+                    <button id="quiz-next" type="button">Next</button>
+                </div>
+            </div>
+        </div>
+
+        <script src="quiz.js"></script>
         <script src="renderer.js"></script>
     </body>
 </html>

@@ -20,3 +20,58 @@ html, body {
 button {
     -webkit-app-region: no-drag;   /* buttons inside a drag area must opt out to stay clickable */
 }
+
+[hidden] {
+    display: none !important;
+}
+
+.card {
+    margin-top: 12px;
+    width: 420px;
+    -webkit-app-region: no-drag;   /* text selection and inputs must work inside the card */
+}
+
+.card-header {
+    display: flex;
+    justify-content: space-between;
+    font-size: 12px;
+    opacity: 0.7;
+}
+
+#quiz-prompt {
+    font-size: 15px;
+    line-height: 1.4;
+}
+
+#quiz-options label {
+    display: block;
+    padding: 4px 0;
+    cursor: pointer;
+}
+
+textarea {
+    width: 100%;
+    box-sizing: border-box;
+    font: inherit;
+    border-radius: 6px;
+    padding: 6px;
+}
+
+.card-actions {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 10px;
+}
+
+#quiz-result .card-actions {
+    justify-content: flex-end;
+}
+
+#quiz-verdict {
+    font-weight: 600;
+}
+
+.verdict-correct { color: #6fdc8c; }
+.verdict-partial { color: #f1c21b; }
+.verdict-incorrect { color: #ff8389; }
+.verdict-ungraded { color: #c6c6c6; }

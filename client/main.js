@@ -37,6 +37,17 @@ app.whenReady().then(() => {
         console.log(`[renderer] ${msg}`)
     })
 
+    // a question card opened: it must be clickable and accept typing
+    ipcMain.handle("quiz-shown", () => {
+        if (!win || win.isDestroyed()) { return }
+        if (clickThrough) {
+            clickThrough = false
+            win.setIgnoreMouseEvents(false)
+            console.log("[main] click-through OFF (quiz shown)")
+        }
+        win.focus()
+    })
+
     session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
         try {
             const sources = await desktopCapturer.getSources({ types: ["screen"] });
