@@ -1,10 +1,16 @@
 """Throwaway: grade one answer with a local Ollama model through ModelClient."""
 import asyncio
 
-from app.jobs.grading import GRADE_SCHEMA
 from app.llm.client import ModelClient
 from app.llm.providers.ollama import OllamaProvider
 from app.llm.types import Message
+
+GRADE_SCHEMA = {
+    "type": "object",
+    "properties": {"score": {"type": "number"}, "feedback": {"type": "string"}},
+    "required": ["score", "feedback"],
+    "additionalProperties": False,
+}
 
 
 async def main():

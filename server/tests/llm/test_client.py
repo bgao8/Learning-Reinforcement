@@ -1,7 +1,6 @@
 """Tests for ModelClient retry/timeout/errors using FakeProvider."""
 import pytest
 
-from app.jobs.grading import GRADE_SCHEMA
 from app.llm.client import ModelClient                                  # was missing
 from app.llm.errors import InvalidOutput, ModelTimeout, ModelUnavailable
 from app.llm.providers.fake import FakeProvider
@@ -9,6 +8,13 @@ from app.llm.types import Message
 
 pytestmark = pytest.mark.anyio          # applies the async plugin to EVERY test in this file
 
+# any schema works here; these tests are about ModelClient, not grading
+GRADE_SCHEMA = {
+    "type": "object",
+    "properties": {"score": {"type": "number"}, "feedback": {"type": "string"}},
+    "required": ["score", "feedback"],
+    "additionalProperties": False,
+}
 VALID = '{"score": 1, "feedback": "ok"}'
 MESSAGES = [Message(role="user", content="What do mitochondria produce?")]
 
