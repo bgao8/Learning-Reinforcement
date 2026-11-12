@@ -15,20 +15,28 @@ Writing the actual questions is #19. This part only decides *when*.
 
 ### Time
 All timing uses **lecture time**: seconds since recording started, taken from the newest
-transcribed word (`TranscriptBuffer.last_end`), not the wall clock. Transcription lag, paused
-videos and silence don't count as lecture passing, and tests can use fake times.
+transcribed word (`TranscriptBuffer.last_end`), not the wall clock. Transcription lag doesn't
+count as lecture passing, and tests can use fake times. Silence (including a video paused for
+a quiz, #20) only freezes the clock until speech resumes: word timestamps sit on the audio
+timeline, so the first word after a pause jumps the clock forward by the paused time.
 
 ### CheckpointGate (`server/src/app/checkpoint.py`)
 Pure timing logic with no model and no I/O. `decide(now)` applies these rules in order:
-1. **Cooldown:** less than 180 s since the last quiz, so do nothing
-2. **Length:** at least 600 s since the last quiz, so return `"length"` (no model call)
+1. **Cooldown:** less than 120 s since the last quiz, so do nothing
+2. **Length:** at least 360 s since the last quiz, so return `"length"` (no model call)
 3. **Spacing:** the model was asked less than 30 s ago, so do nothing
 4. Otherwise record the check and return `"check"`
 
-The session start counts as the last quiz, so nothing happens in the first 3 minutes. That
-also guarantees 2 minutes of transcript before the first check. The caller calls
-`mark_quiz(now)` only when a quiz row is actually created. (Per-session presets for these
-numbers: #51.)
+The numbers live in `config.py` (`gate_cooldown_s`, `gate_force_s`, `gate_check_every_s`) and
+can be overridden in `.env`. They're short on purpose: frequent quizzes keep the learner
+paying attention. A topic-shift quiz needs two shift answers in a row, so the earliest one
+comes at cooldown + one check, about 150 s, which is ~375 words at a typical speaking pace.
+That's enough for 3 grounded questions. (Lowered from 180/600 s on 2026-11-12.)
+
+The session start counts as the last quiz, so nothing happens in the first 2 minutes. That
+also guarantees 2 minutes of transcript before the first check, which is exactly what the
+PREVIOUS + RECENT windows below need. The caller calls `mark_quiz(now)` only when a quiz row
+is actually created. (Per-session presets for these numbers: #51.)
 
 ### What the model sees
 - **PREVIOUS:** transcript from 1–2 min ago (`buffer.between(now-120, now-60)`)

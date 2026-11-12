@@ -7,6 +7,7 @@ from app.stt.silence import is_silent
 from app.stt.transcriber import Transcriber
 from app.stt.windower import AudioWindower, Window, owned_words
 from app.checkpoint import CheckpointGate
+from app.config import settings
 
 
 class OutOfOrderChunk(Exception):
@@ -28,7 +29,11 @@ class LiveSession:
         self.buffer = TranscriptBuffer()
         self.next_seq = 0
         self._window_seq = 0
-        self.gate = CheckpointGate()
+        self.gate = CheckpointGate(
+            cooldown_s=settings.gate_cooldown_s,
+            force_s=settings.gate_force_s,
+            check_every_s=settings.gate_check_every_s,
+        )
         self.checking = False  # a checkpoint task is running
         self.topic_so_far: str | None = None
         self.pending_shift = False

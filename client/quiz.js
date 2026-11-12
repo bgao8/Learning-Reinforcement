@@ -13,7 +13,7 @@ const quiz = {
     open: false,
     questions: [],
     index: 0,
-    // #20 hooks: pause the video when a card opens, resume when it closes
+    // #20 hooks, set by media.js: pause the video when a card opens, resume when it closes
     onQuizShown: () => {},
     onQuizDone: () => {},
 }
@@ -146,7 +146,7 @@ function showResult(attempt) {
     el("quiz-next").focus()
 }
 
-function nextQuestion() {
+async function nextQuestion() {
     quiz.index += 1
     if (quiz.index < quiz.questions.length) {
         renderQuestion()
@@ -154,8 +154,8 @@ function nextQuestion() {
     }
     card.hidden = true
     quiz.open = false
-    quiz.onQuizDone()
-    pollPending()   // another quiz may already be waiting
+    await pollPending()                  // another quiz may already be waiting...
+    if (!quiz.open) quiz.onQuizDone()    // ...if so, stay paused through it
 }
 
 function setButtonsDisabled(disabled) {
