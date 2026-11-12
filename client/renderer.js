@@ -143,6 +143,7 @@ async function start() {
         rec.sessionId = await createSession()
         window.api.log(`Session started: ${rec.sessionId} sampleRate=${context.sampleRate}`)
         recording = { stream, track, context, source, node, sessionId: rec.sessionId, rec }
+        startQuizPolling(rec.sessionId)
     } catch(err) {
         window.api.log(`Audio setup failed: ${err.message}`)
         track.stop()
@@ -161,6 +162,7 @@ async function stop() {
     recording.track.stop()
     await recording.context.close()
     recording = null
+    endQuizPolling()
 
     if (rec.pendingLen > 0) {
         queueUpload(rec, takePending(rec))

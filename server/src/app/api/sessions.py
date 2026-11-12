@@ -8,9 +8,10 @@ import numpy as np
 
 from fastapi import APIRouter, Depends, HTTPException, Request
 from pydantic import BaseModel, ConfigDict
+from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app.db.models import Quiz, Session, User, TranscriptChunk
+from app.db.models import Attempt, Question, Quiz, Session, User, TranscriptChunk
 from app.jobs.questions import generate_questions, keep_grounded, load_span, save_questions
 from app.db.session import SessionLocal, get_db
 from app.api.deps import get_current_user, get_shift_client, get_smart_client
@@ -43,6 +44,21 @@ class SessionOut(BaseModel):
     source: str | None
     started_at: datetime
     ended_at: datetime | None
+
+class PendingQuestion(BaseModel):
+    # what the question card needs; answer_key is deliberately left out
+    model_config = ConfigDict(from_attributes=True)
+    question_id: UUID
+    prompt: str
+    question_type: str | None
+    options: list[str] | None
+
+
+class PendingQuiz(BaseModel):
+    quiz_id: UUID | None
+    topic: str | None
+    questions: list[PendingQuestion]
+
 
 @cache
 def get_transcriber() -> Transcriber:
@@ -86,6 +102,30 @@ async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
         db.refresh(session)
 
     return session
+
+@router.get("/{session_id}/questions/pending", response_model=PendingQuiz)
+def pending_questions(session_id: UUID, db: DbSession = Depends(get_db), user: User = Depends(get_current_user)):
+    """The oldest quiz in this session that still has questions the user hasn't answered, with only those questions."""
+    if db.get(Session, session_id) is None:
+        raise HTTPException(status_code=404, detail="session not found")
+
+    answered = select(Attempt.question_id).where(Attempt.user_id == user.user_id)
+    rows = db.execute(
+        select(Question, Quiz.topic)
+        .join(Quiz, Question.quiz_id == Quiz.quiz_id)
+        .where(Quiz.session_id == session_id, Question.question_id.not_in(answered))
+        .order_by(Quiz.triggered_at, Question.created_at, Question.prompt)
+    ).all()
+
+    if not rows:
+        return PendingQuiz(quiz_id=None, topic=None, questions=[])
+    first_quiz = rows[0].Question.quiz_id
+    return PendingQuiz(
+        quiz_id=first_quiz,
+        topic=rows[0].topic,
+        questions=[PendingQuestion.model_validate(r.Question) for r in rows if r.Question.quiz_id == first_quiz],
+    )
+
 
 @router.post("/{session_id}/chunks", status_code=204)
 async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSession = Depends(get_db), shift_client: ModelClient = Depends(get_shift_client), smart_client: ModelClient = Depends(get_smart_client)):
