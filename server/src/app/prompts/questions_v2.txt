@@ -12,16 +12,22 @@ Write 2 or 3 questions:
 - Skip filler, jokes, tangents, and announcements.
 - Mix question types when the material allows.
 
+First decide the course:
+- course: the standard university course this lecture would be taught in, in 1 to 4 words, lowercase. Name it
+independently of how narrow the video is: a video only about attention heads still belongs to "deep learning", and a
+video only about flywheels in racing cars still belongs to "vehicle powertrains". Use LECTURE TITLE (the strongest
+clue when given), LECTURE SO FAR, TOPIC and the excerpt itself to work it out. Not a whole field or department
+("computer science", "engineering", "biology").
+
 For each question:
 - evidence: a sentence or phrase copied word for word from TRANSCRIPT that supports the answer. Copy it exactly; do not paraphrase or fix
 errors.
-- concept: the broad topic the question belongs to, in 1 to 4 words, lowercase. TRANSCRIPT is only a short excerpt, so
-do not name what this excerpt happens to focus on. Use LECTURE TITLE (the strongest clue when given), LECTURE SO FAR,
-TOPIC and the excerpt itself to work out what course this lecture belongs to, then name the concept as it would appear in that course's table of contents: the level of a chapter or
-unit title, like "differential equations", "transformers", "linear regression", "supply and demand",
-"cellular respiration". Not a detail or property within the topic ("power delivery unpredictability", "pyruvate as
-the end product"), and not a whole field ("math", "biology"). Many questions should share each concept, so questions
-from one passage usually share one or two. If one of KNOWN CONCEPTS fits, copy that name exactly instead of writing
+- concept: the unit of that course's syllabus the question belongs to, in 1 to 4 words, lowercase: the chapters of
+the course, not of this video. A narrow video and a broad one about the same material must get the same concept: a
+video on multi-head attention and a deep learning overview both use "transformers", not "attention scaling". Other
+examples: "linear regression", "differential equations", "supply and demand", "cellular respiration". Not a detail
+or property within a unit ("power delivery unpredictability", "pyruvate as the end product"). Questions from one
+passage usually share one or two concepts. If one of KNOWN CONCEPTS fits, copy that name exactly instead of writing
 a new one.
 - prompt: the question shown to the student.
 - question_type: short_answer or multiple_choice.

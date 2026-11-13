@@ -3,7 +3,7 @@ import json
 
 import pytest
 
-from app.jobs.questions import PROMPT, QUESTIONS_SCHEMA, GeneratedQuestion, Span, build_message, generate_questions
+from app.jobs.questions import PROMPT, QUESTIONS_SCHEMA, GeneratedQuestion, GeneratedQuiz, Span, build_message, generate_questions
 from app.llm.client import ModelClient
 from app.llm.errors import InvalidOutput
 from app.llm.providers.fake import FakeProvider
@@ -31,14 +31,15 @@ def q(prompt="What does glycolysis split?", **overrides):
     return item
 
 
-def answer(*items):
-    return json.dumps({"questions": list(items)})
+def answer(*items, course="biology 101"):
+    return json.dumps({"course": course, "questions": list(items)})
 
 
 async def test_returns_generated_questions():
     _, client = make([answer(q())])
     result = await generate_questions(client, SPAN, "glycolysis")
-    assert result == [
+    assert result.course == "biology 101"
+    assert result.questions == [
         GeneratedQuestion(
             prompt="What does glycolysis split?",
             question_type="short_answer",
@@ -53,7 +54,7 @@ async def test_returns_generated_questions():
 async def test_multiple_choice_keeps_options():
     mc = q(question_type="multiple_choice", options=["glucose", "pyruvate", "ATP"], answer_key="glucose")
     _, client = make([answer(mc)])
-    [result] = await generate_questions(client, SPAN, "glycolysis")
+    [result] = (await generate_questions(client, SPAN, "glycolysis")).questions
     assert result.question_type == "multiple_choice"
     assert result.options == ["glucose", "pyruvate", "ATP"]
 
@@ -81,20 +82,20 @@ async def test_no_topic_line_when_topic_is_none():
 
 async def test_keeps_at_most_three():
     _, client = make([answer(q("one"), q("two"), q("three"), q("four"), q("five"))])
-    result = await generate_questions(client, SPAN, "glycolysis")
+    result = (await generate_questions(client, SPAN, "glycolysis")).questions
     assert [x.prompt for x in result] == ["one", "two", "three"]
 
 
 async def test_empty_list_returns_empty():
     _, client = make([answer()])
-    assert await generate_questions(client, SPAN, "glycolysis") == []
+    assert await generate_questions(client, SPAN, "glycolysis") == GeneratedQuiz(course="biology 101", questions=[])
 
 
 async def test_bad_item_is_retried_then_succeeds():
     bad = q()
     del bad["answer_key"]
     fake, client = make([answer(bad), answer(q())])
-    result = await generate_questions(client, SPAN, "glycolysis")
+    result = (await generate_questions(client, SPAN, "glycolysis")).questions
     assert len(result) == 1
     assert len(fake.requests) == 2
 
@@ -109,7 +110,7 @@ async def test_missing_concept_is_retried():
     no_concept = q()
     del no_concept["concept"]
     fake, client = make([answer(no_concept), answer(q())])
-    [result] = await generate_questions(client, SPAN, "glycolysis")
+    [result] = (await generate_questions(client, SPAN, "glycolysis")).questions
     assert result.concept == "glycolysis"
     assert len(fake.requests) == 2
 
@@ -147,3 +148,16 @@ def test_lecture_title_comes_first():
 def test_no_lecture_title_section_when_missing():
     assert "LECTURE TITLE" not in build_message(SPAN, "glycolysis", title=None)
     assert "LECTURE TITLE" not in build_message(SPAN, "glycolysis", title="")
+
+
+async def test_missing_course_is_retried():
+    no_course = json.dumps({"questions": [q()]})
+    fake, client = make([no_course, answer(q(), course="deep learning")])
+    result = await generate_questions(client, SPAN, "glycolysis")
+    assert result.course == "deep learning"
+    assert len(fake.requests) == 2
+
+
+def test_course_comes_before_questions_in_the_schema():
+    # generation follows schema order: the course must be settled before concepts are named
+    assert list(QUESTIONS_SCHEMA["properties"]) == ["course", "questions"]

@@ -44,13 +44,15 @@ PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v2.txt").read_te
 QUESTIONS_SCHEMA = {
     "type": "object",
     "properties": {
+        # decided FIRST, so concepts are named as units of a standard course, not of this video
+        "course": {"type": "string"},
         "questions": {
             "type": "array",
             "items": {
                 "type": "object",
                 "properties": {
                     "evidence": {"type": "string"},        # exact quote from the transcript, written FIRST
-                    "concept": {"type": "string"},         # broad topic (chapter-level), decided before writing the question
+                    "concept": {"type": "string"},         # a unit of `course`'s syllabus, decided before writing the question
                     "prompt": {"type": "string"},
                     "question_type": {"type": "string", "enum": ["short_answer", "multiple_choice"]},
                     "options": {"type": "array", "items": {"type": "string"}},  # [] for short_answer
@@ -61,7 +63,7 @@ QUESTIONS_SCHEMA = {
             },
         },
     },
-    "required": ["questions"],
+    "required": ["course", "questions"],
     "additionalProperties": False,
 }
 
@@ -73,6 +75,12 @@ class GeneratedQuestion:
     answer_key: str
     evidence: str
     concept: str
+
+
+@dataclass(frozen=True)
+class GeneratedQuiz:
+    course: str                          # the standard course the model placed this lecture in
+    questions: list[GeneratedQuestion]
 
 
 def build_message(
@@ -100,7 +108,7 @@ def build_message(
 async def generate_questions(
     client: ModelClient, span: Span, topic: str | None,
     known_concepts: Sequence[str] = (), lecture_topics: Sequence[str] = (), title: str | None = None,
-) -> list[GeneratedQuestion]:
+) -> GeneratedQuiz:
     text = build_message(span, topic, known_concepts, lecture_topics, title)
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
 
@@ -109,7 +117,7 @@ async def generate_questions(
         gen_q = GeneratedQuestion(prompt=q["prompt"], question_type=q["question_type"], options=q["options"], answer_key=q["answer_key"], evidence=q["evidence"], concept=q["concept"])
         questions.append(gen_q)
 
-    return questions
+    return GeneratedQuiz(course=response.output["course"], questions=questions)
 
 
 _PUNCT = re.compile(r"[^\w\s]")

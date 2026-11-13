@@ -100,6 +100,7 @@ async def main(args) -> None:
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
     elapsed = time.perf_counter() - started
 
+    print(f"course: {response.output['course']!r}\n")
     generated = [GeneratedQuestion(**q) for q in response.output["questions"][:3]]
     kept = keep_grounded(generated, span.text)
 

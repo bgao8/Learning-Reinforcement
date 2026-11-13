@@ -333,7 +333,7 @@ def llm(*scripted):
 
 
 def answer(*questions):
-    return json.dumps({"questions": list(questions)})
+    return json.dumps({"course": "biology 101", "questions": list(questions)})
 
 
 def question(evidence="glycolysis splits glucose", prompt="What does glycolysis split?", question_type="short_answer", options=(), answer_key="glucose", concept="glycolysis"):

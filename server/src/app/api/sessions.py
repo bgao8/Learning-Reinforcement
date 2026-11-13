@@ -210,10 +210,10 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
         generated = await generate_questions(client, span, trigger.topic, known, earlier, title)
         elapsed = time.perf_counter() - started
 
-        kept = keep_grounded(generated, span.text)
+        kept = keep_grounded(generated.questions, span.text)
         log.info(
-            "quiz %s: generated %d questions in %.1fs, kept %d, concepts %s",
-            quiz_id, len(generated), elapsed, len(kept), [q.concept for q in kept],
+            "quiz %s: generated %d questions in %.1fs, kept %d, course %r, concepts %s",
+            quiz_id, len(generated.questions), elapsed, len(kept), generated.course, [q.concept for q in kept],
         )
 
         with SessionLocal() as db:
