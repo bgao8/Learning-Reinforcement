@@ -7,8 +7,9 @@ from fastapi.testclient import TestClient
 from sqlalchemy import select
 
 from app.api.deps import get_current_user, get_smart_client
-from app.db.models import Attempt, Question
+from app.db.models import Attempt, Mastery, Question
 from app.db.session import get_db
+from app.jobs.questions import get_or_create_concept
 from app.llm.client import ModelClient
 from app.llm.errors import ModelUnavailable
 from app.llm.providers.fake import FakeProvider
@@ -96,3 +97,46 @@ def test_unknown_question_is_404(api, db):
 def test_missing_answer_is_422(api, db, recording):
     question = add_question(db, recording.session_id)
     assert api.post(f"/questions/{question.question_id}/attempts", json={}).status_code == 422
+
+
+# --- rating changes (#25) ---
+
+def mc_question(db, session_id, concept="glycolysis") -> Question:
+    """Multiple choice is graded in code, so these tests need no model."""
+    return add_question(
+        db, session_id, question_type="multiple_choice", options=["nucleus", "cytoplasm"], answer_key="cytoplasm",
+        concept_id=get_or_create_concept(db, concept) if concept else None,
+    )
+
+
+def test_right_answer_returns_the_rating_change(api, db, recording):
+    question = mc_question(db, recording.session_id)
+    body = answer(api, question.question_id, "cytoplasm").json()
+    assert (body["concept"], body["elo_before"], body["elo_after"], body["calibrating"]) == ("glycolysis", 1000, 1030, True)
+
+
+def test_skip_counts_as_wrong(api, db, recording):
+    question = mc_question(db, recording.session_id)
+    body = answer(api, question.question_id, "").json()
+    assert (body["score"], body["elo_after"]) == (0.0, 970)
+
+
+def test_answers_on_one_concept_build_up(api, db, recording):
+    afters = [answer(api, mc_question(db, recording.session_id).question_id, "cytoplasm").json()["elo_after"] for _ in range(4)]
+    assert afters[:3] == [1030, 1060, 1090]   # calibrating: fixed +30
+    assert 1090 < afters[3] < 1120             # 4th answer: weighted, smaller than +30
+
+
+def test_question_without_concept_changes_no_rating(api, db, user, recording):
+    question = mc_question(db, recording.session_id, concept=None)
+    body = answer(api, question.question_id, "cytoplasm").json()
+    assert (body["concept"], body["elo_before"], body["elo_after"], body["calibrating"]) == (None, None, None, None)
+    assert db.scalars(select(Mastery).where(Mastery.user_id == user.user_id)).all() == []
+
+
+def test_failed_grading_changes_no_rating(api, db, user, recording):
+    question = add_question(db, recording.session_id, concept_id=get_or_create_concept(db, "glycolysis"))
+    api.script.append(ModelUnavailable("down"))
+    body = answer(api, question.question_id, "pyruvate").json()
+    assert (body["graded"], body["elo_after"]) == (False, None)
+    assert db.scalars(select(Mastery).where(Mastery.user_id == user.user_id)).all() == []

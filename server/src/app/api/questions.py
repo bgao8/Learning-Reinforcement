@@ -1,4 +1,5 @@
-"""Answer a question: POST /questions/{question_id}/attempts grades the answer and saves an Attempt."""
+"""Answer a question: POST /questions/{question_id}/attempts grades the answer, saves an Attempt,
+and moves the user's rating for the question's concept (#25)."""
 import logging
 from uuid import UUID
 
@@ -10,6 +11,7 @@ from app.api.deps import get_current_user, get_smart_client
 from app.db.models import Attempt, Question, User
 from app.db.session import get_db
 from app.jobs.grading import grade
+from app.jobs.mastery_store import record_answer
 from app.llm import ModelClient, ModelError
 
 log = logging.getLogger(__name__)
@@ -26,6 +28,11 @@ class AttemptOut(BaseModel):
     is_correct: bool | None
     score: float | None
     feedback: str | None
+    # rating change (#25); all None when the answer wasn't graded or the question has no concept
+    concept: str | None = None
+    elo_before: float | None = None
+    elo_after: float | None = None
+    calibrating: bool | None = None
 
 
 @router.post("/{question_id}/attempts", response_model=AttemptOut, status_code=201)
@@ -46,6 +53,11 @@ async def create_attempt(
         log.exception("grading failed for question %s", question_id)
         result = None
 
+    # rate before adding the attempt, so the count of earlier answers excludes this one
+    rating = None
+    if result is not None and question.concept_id is not None:
+        rating = record_answer(db, user.user_id, question.concept_id, result.score)
+
     attempt = Attempt(
         question_id=question_id,
         user_id=user.user_id,
@@ -63,4 +75,8 @@ async def create_attempt(
         is_correct=attempt.is_correct,
         score=attempt.score,
         feedback=attempt.feedback,
+        concept=rating.concept if rating else None,
+        elo_before=rating.elo_before if rating else None,
+        elo_after=rating.elo_after if rating else None,
+        calibrating=rating.calibrating if rating else None,
     )
