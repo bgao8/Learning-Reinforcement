@@ -22,7 +22,8 @@ from sqlalchemy import String, cast, func, select
 from app.db.models import Quiz, TranscriptChunk
 from app.db.session import SessionLocal
 from app.jobs.questions import (
-    PROMPT, QUESTIONS_SCHEMA, GeneratedQuestion, _well_formed, keep_grounded, load_span, save_questions,
+    PROMPT, QUESTIONS_SCHEMA, GeneratedQuestion, _well_formed, build_message, keep_grounded, known_concepts,
+    load_span, save_questions,
 )
 from app.llm import Message, make_client
 
@@ -78,16 +79,17 @@ async def main(args) -> None:
             print(f"quiz {qid}  ({quiz.trigger_reason}, topic={topic!r})")
         print(f"span {start:.0f}s -> {end:.0f}s")
         span = load_span(db, session_id, start, end)
+        known = known_concepts(db, session_id)
 
     if span is None:
         raise SystemExit("no transcript chunks in that span")
     print(f"span text: {len(span.text.split())} words, chunks {span.start_chunk}-{span.end_chunk}")
     print(textwrap.indent(textwrap.fill(span.text[:400] + " ...", 100), "  "), "\n")
 
+    print(f"known concepts: {known or '(none)'}\n")
+
     # same prompt/schema as generate_questions, but keep the Response for timing and usage
-    text = f"TRANSCRIPT\n{span.text}"
-    if topic:
-        text = f"TOPIC\n{topic}\n\n{text}"
+    text = build_message(span, topic, known)
     client = make_client("smart")
     started = time.perf_counter()
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
@@ -98,7 +100,7 @@ async def main(args) -> None:
 
     for i, q in enumerate(generated, 1):
         status = "KEPT" if q in kept else f"DROPPED ({drop_reason(q)})"
-        print(f"[{i}] {status}  {q.question_type}")
+        print(f"[{i}] {status}  {q.question_type}  concept={q.concept!r}")
         print(f"    Q: {q.prompt}")
         if q.options:
             print(f"    options: {q.options}")

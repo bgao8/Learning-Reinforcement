@@ -83,6 +83,8 @@ class Concept(Base):
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
     )
     name: Mapped[str] = mapped_column(Text, nullable=False)
+    # normalized name (lowercase, punctuation stripped): how concepts are matched and deduped
+    name_key: Mapped[str] = mapped_column(Text, nullable=False, unique=True)
     description: Mapped[str | None] = mapped_column(Text)
     embedding: Mapped[list[float] | None] = mapped_column(Vector(1536))
     created_at: Mapped[datetime] = mapped_column(
@@ -178,7 +180,7 @@ class Mastery(Base):
     concept_id: Mapped[uuid.UUID] = mapped_column(
         ForeignKey("concepts.concept_id"), primary_key=True
     )
-    elo: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("1200"))
+    elo: Mapped[float] = mapped_column(Float, nullable=False, server_default=text("1000"))
     updated_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")
     )

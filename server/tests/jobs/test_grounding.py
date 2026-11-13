@@ -22,6 +22,7 @@ def gq(evidence="glycolysis splits glucose", question_type="short_answer", optio
         options=options if options is not None else [],
         answer_key=answer_key,
         evidence=evidence,
+        concept="glycolysis",
     )
 
 

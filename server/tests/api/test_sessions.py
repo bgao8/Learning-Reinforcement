@@ -15,7 +15,7 @@ import json
 
 from app.api.deps import get_current_user, get_smart_client
 from app.api.sessions import checkpoint_task, get_transcriber, live_sessions, questions_task
-from app.db.models import Question, Quiz, Session, TranscriptChunk, User
+from app.db.models import Concept, Question, Quiz, Session, TranscriptChunk, User
 from app.llm.client import ModelClient
 from app.llm.errors import ModelUnavailable
 from app.llm.providers.fake import FakeProvider
@@ -313,8 +313,8 @@ def answer(*questions):
     return json.dumps({"questions": list(questions)})
 
 
-def question(evidence="glycolysis splits glucose", prompt="What does glycolysis split?", question_type="short_answer", options=(), answer_key="glucose"):
-    return {"evidence": evidence, "prompt": prompt, "question_type": question_type, "options": list(options), "answer_key": answer_key}
+def question(evidence="glycolysis splits glucose", prompt="What does glycolysis split?", question_type="short_answer", options=(), answer_key="glucose", concept="glycolysis"):
+    return {"evidence": evidence, "concept": concept, "prompt": prompt, "question_type": question_type, "options": list(options), "answer_key": answer_key}
 
 
 def saved_questions(db, quiz_id):
@@ -384,3 +384,33 @@ async def test_questions_task_failure_keeps_quiz(db, recording, use_test_db):
 
     assert saved_questions(db, quiz.quiz_id) == []
     assert db.get(Quiz, quiz.quiz_id) is not None
+
+
+@pytest.mark.anyio
+async def test_questions_task_tags_questions_with_concepts(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+    a = question(prompt="a", concept="Glycolysis")
+    b = question(prompt="b", concept="glycolysis.")      # same concept after normalizing
+    c = question(prompt="c", concept="")                 # blank: no concept, no rating later
+
+    await questions_task(llm(answer(a, b, c)), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    rows = {r.prompt: r for r in saved_questions(db, quiz.quiz_id)}
+    assert rows["a"].concept_id is not None
+    assert rows["a"].concept_id == rows["b"].concept_id
+    assert db.get(Concept, rows["a"].concept_id).name_key == "glycolysis"
+    assert rows["c"].concept_id is None
+
+
+@pytest.mark.anyio
+async def test_questions_task_offers_the_sessions_concepts_for_reuse(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    first = make_quiz(db, recording.session_id)
+    await questions_task(llm(answer(question(concept="glycolysis"))), recording.session_id, first.quiz_id, TRIGGER)
+
+    second = make_quiz(db, recording.session_id)
+    client = llm(answer(question(prompt="again")))
+    await questions_task(client, recording.session_id, second.quiz_id, TRIGGER)
+
+    assert "KNOWN CONCEPTS\n- glycolysis" in client.provider.requests[0].messages[0].content

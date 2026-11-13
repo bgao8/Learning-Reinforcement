@@ -12,7 +12,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import Attempt, Question, Quiz, Session, User, TranscriptChunk
-from app.jobs.questions import generate_questions, keep_grounded, load_span, save_questions
+from app.jobs.questions import generate_questions, keep_grounded, known_concepts, load_span, save_questions
 from app.db.session import SessionLocal, get_db
 from app.api.deps import get_current_user, get_shift_client, get_smart_client
 from app.llm import ModelClient
@@ -180,17 +180,21 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
     try:
         with SessionLocal() as db:
             span = load_span(db, session_id, trigger.span_start, trigger.span_end)
+            known = known_concepts(db, session_id)
         if span is None:
             log.warning("quiz %s: no transcript in span, no questions", quiz_id)
             return
 
         # no DB session held during the LLM call
         started = time.perf_counter()
-        generated = await generate_questions(client, span, trigger.topic)
+        generated = await generate_questions(client, span, trigger.topic, known)
         elapsed = time.perf_counter() - started
 
         kept = keep_grounded(generated, span.text)
-        log.info("quiz %s: generated %d questions in %.1fs, kept %d", quiz_id, len(generated), elapsed, len(kept))
+        log.info(
+            "quiz %s: generated %d questions in %.1fs, kept %d, concepts %s",
+            quiz_id, len(generated), elapsed, len(kept), [q.concept for q in kept],
+        )
 
         with SessionLocal() as db:
             save_questions(db, session_id, quiz_id, span, kept)

@@ -33,6 +33,7 @@ CREATE TABLE transcript_chunks (
 CREATE TABLE concepts (
     concept_id  UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     name        TEXT NOT NULL,
+    name_key    TEXT NOT NULL UNIQUE,     -- normalized name: how concepts are matched and deduped
     description TEXT,
     embedding   VECTOR(1536),             -- OpenAI text-embedding-3-small = 1536 dims
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
@@ -76,7 +77,7 @@ CREATE TABLE attempts (
 CREATE TABLE mastery (
     user_id    UUID NOT NULL REFERENCES users(user_id),
     concept_id UUID NOT NULL REFERENCES concepts(concept_id),
-    elo        REAL NOT NULL DEFAULT 1200,
+    elo        REAL NOT NULL DEFAULT 1000,
     updated_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     PRIMARY KEY (user_id, concept_id)
 );
