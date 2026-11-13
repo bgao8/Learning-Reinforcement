@@ -125,3 +125,25 @@ async def test_sends_known_concepts_between_topic_and_transcript():
 def test_no_known_concepts_section_when_empty():
     assert "KNOWN CONCEPTS" not in build_message(SPAN, "glycolysis", [])
     assert build_message(SPAN, None) == "TRANSCRIPT\nso glycolysis splits glucose"
+
+
+async def test_sends_lecture_so_far_first():
+    fake, client = make([answer(q())])
+    await generate_questions(client, SPAN, "glycolysis", ["glycolysis"], ["cell structure", "enzymes"])
+    content = fake.requests[0].messages[0].content
+    assert content.startswith("LECTURE SO FAR\n- cell structure\n- enzymes\n\nTOPIC")
+    assert content.index("TOPIC") < content.index("KNOWN CONCEPTS") < content.index("TRANSCRIPT")
+
+
+def test_no_lecture_so_far_section_when_empty():
+    assert "LECTURE SO FAR" not in build_message(SPAN, "glycolysis", ["glycolysis"], [])
+
+
+def test_lecture_title_comes_first():
+    message = build_message(SPAN, "glycolysis", ["glycolysis"], ["cell structure"], "Bio 101: respiration")
+    assert message.startswith("LECTURE TITLE\nBio 101: respiration\n\nLECTURE SO FAR")
+
+
+def test_no_lecture_title_section_when_missing():
+    assert "LECTURE TITLE" not in build_message(SPAN, "glycolysis", title=None)
+    assert "LECTURE TITLE" not in build_message(SPAN, "glycolysis", title="")

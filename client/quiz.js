@@ -60,6 +60,7 @@ function showQuiz(pending) {
     quiz.index = 0
     el("quiz-topic").textContent = pending.topic || "Quick check"
     card.hidden = false
+    hideTitleBox()           // the title box is only offered before the first quiz
     window.api.quizShown()   // main process turns click-through off and focuses the window
     quiz.onQuizShown()
     renderQuestion()

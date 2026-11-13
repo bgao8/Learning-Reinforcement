@@ -1,10 +1,10 @@
-"""get_or_create_concept and known_concepts against the local Postgres (rolled back after each test)."""
+"""get_or_create_concept, known_concepts and lecture_topics against the local Postgres (rolled back after each test)."""
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 
-from app.db.models import Concept, Mastery, Question, Session, User
-from app.jobs.questions import get_or_create_concept, known_concepts
+from app.db.models import Concept, Mastery, Question, Quiz, Session, User
+from app.jobs.questions import get_or_create_concept, known_concepts, lecture_topics
 
 
 def concept_count(db) -> int:
@@ -80,3 +80,35 @@ def test_other_users_ratings_and_other_sessions_are_ignored(db, recording):
     rate(db, stranger.user_id, "inflation", minutes_ago=1)
 
     assert known_concepts(db, recording.session_id) == []
+
+
+# --- lecture_topics ---
+
+def add_quiz(db, session_id, topic, start):
+    quiz = Quiz(session_id=session_id, trigger_reason="topic_shift", span_start_ts=start, span_end_ts=start + 150, topic=topic)
+    db.add(quiz)
+    db.flush()
+    return quiz
+
+
+def test_earlier_topics_oldest_first_without_blanks_or_repeats(db, recording):
+    add_quiz(db, recording.session_id, "enzymes", start=150)
+    add_quiz(db, recording.session_id, "cell structure", start=0)
+    add_quiz(db, recording.session_id, None, start=300)
+    add_quiz(db, recording.session_id, "", start=450)
+    add_quiz(db, recording.session_id, "enzymes", start=600)
+    assert lecture_topics(db, recording.session_id) == ["cell structure", "enzymes"]
+
+
+def test_current_quiz_is_excluded(db, recording):
+    add_quiz(db, recording.session_id, "cell structure", start=0)
+    current = add_quiz(db, recording.session_id, "glycolysis", start=150)
+    assert lecture_topics(db, recording.session_id, exclude_quiz_id=current.quiz_id) == ["cell structure"]
+
+
+def test_other_sessions_topics_are_ignored(db, recording, user):
+    other = Session(user_id=user.user_id)
+    db.add(other)
+    db.flush()
+    add_quiz(db, other.session_id, "macroeconomics", start=0)
+    assert lecture_topics(db, recording.session_id) == []

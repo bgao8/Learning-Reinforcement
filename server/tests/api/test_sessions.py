@@ -80,6 +80,29 @@ def test_create_with_empty_body_is_allowed(client):
     assert client.post("/sessions", json={}).status_code == 201
 
 
+# --- PATCH /sessions/{id}: the optional video title ---
+
+def test_patch_sets_title_trimmed(client):
+    sid = start(client)
+    res = client.patch(f"/sessions/{sid}", json={"title": "  Flywheel KERS explained  "})
+    assert res.status_code == 200
+    assert res.json()["title"] == "Flywheel KERS explained"
+
+
+def test_patch_empty_title_clears_it(client):
+    sid = client.post("/sessions", json={"title": "old"}).json()["session_id"]
+    assert client.patch(f"/sessions/{sid}", json={"title": "   "}).json()["title"] is None
+
+
+def test_patch_title_over_300_chars_is_rejected(client):
+    sid = start(client)
+    assert client.patch(f"/sessions/{sid}", json={"title": "x" * 301}).status_code == 422
+
+
+def test_patch_unknown_session_is_404(client):
+    assert client.patch(f"/sessions/{uuid4()}", json={"title": "t"}).status_code == 404
+
+
 def test_create_saves_row_for_current_user(client, db, user):
     session_id = client.post("/sessions", json={}).json()["session_id"]
     row = db.scalar(select(Session).where(Session.session_id == session_id))
@@ -414,3 +437,35 @@ async def test_questions_task_offers_the_sessions_concepts_for_reuse(db, recordi
     await questions_task(client, recording.session_id, second.quiz_id, TRIGGER)
 
     assert "KNOWN CONCEPTS\n- glycolysis" in client.provider.requests[0].messages[0].content
+
+
+@pytest.mark.anyio
+async def test_questions_task_sends_earlier_quiz_topics(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    earlier = Quiz(session_id=recording.session_id, trigger_reason="topic_shift", span_start_ts=0.0, span_end_ts=5.0, topic="cell structure")
+    db.add(earlier)
+    db.flush()
+    current = make_quiz(db, recording.session_id)
+    current.topic = "glycolysis"
+    db.flush()
+    client = llm(answer(question()))
+
+    await questions_task(client, recording.session_id, current.quiz_id, TRIGGER)
+
+    content = client.provider.requests[0].messages[0].content
+    assert content.startswith("LECTURE SO FAR\n- cell structure\n\nTOPIC\nglycolysis")
+
+
+
+@pytest.mark.anyio
+async def test_questions_task_sends_the_session_title_first(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    recording.title = "Cellular respiration, lecture 4"
+    db.flush()
+    quiz = make_quiz(db, recording.session_id)
+    client = llm(answer(question()))
+
+    await questions_task(client, recording.session_id, quiz.quiz_id, TRIGGER)
+
+    content = client.provider.requests[0].messages[0].content
+    assert content.startswith("LECTURE TITLE\nCellular respiration, lecture 4\n\n")

@@ -10,6 +10,14 @@
         <div class="panel">
             <div class="drag-handle">Frizz</div>
             <button id="toggle-record" type="button">Start Recording</button>
+
+            <!-- optional video title: shown while recording until saved or the first quiz opens -->
+            <div id="title-box" hidden>
+                <input id="title-input" type="text" maxlength="300" placeholder="Video title (optional)">
+                <button id="title-save" type="button">Save</button>
+                <div id="title-status"></div>
+            </div>
+
             <div>
                 Cmd + Shift + K to toggle click-through
             </div>
@@ -44,5 +52,6 @@
         <script src="quiz.js"></script>
         <script src="renderer.js"></script>
         <script src="media.js"></script>
+        <script src="title.js"></script>
     </body>
 </html>

@@ -7,7 +7,7 @@ from sqlalchemy.orm import Session as DbSession
 from uuid import UUID
 from pathlib import Path
 
-from app.db.models import Concept, Mastery, Question, Session, TranscriptChunk
+from app.db.models import Concept, Mastery, Question, Quiz, Session, TranscriptChunk
 from app.llm import Message, ModelClient
 
 @dataclass(frozen=True)
@@ -50,7 +50,7 @@ QUESTIONS_SCHEMA = {
                 "type": "object",
                 "properties": {
                     "evidence": {"type": "string"},        # exact quote from the transcript, written FIRST
-                    "concept": {"type": "string"},         # what it tests, decided before writing the question
+                    "concept": {"type": "string"},         # broad topic (chapter-level), decided before writing the question
                     "prompt": {"type": "string"},
                     "question_type": {"type": "string", "enum": ["short_answer", "multiple_choice"]},
                     "options": {"type": "array", "items": {"type": "string"}},  # [] for short_answer
@@ -75,9 +75,20 @@ class GeneratedQuestion:
     concept: str
 
 
-def build_message(span: Span, topic: str | None, known_concepts: Sequence[str] = ()) -> str:
-    """TOPIC, KNOWN CONCEPTS and TRANSCRIPT sections; the first two only when there's something to say."""
+def build_message(
+    span: Span, topic: str | None, known_concepts: Sequence[str] = (), lecture_topics: Sequence[str] = (),
+    title: str | None = None,
+) -> str:
+    """LECTURE TITLE, LECTURE SO FAR, TOPIC, KNOWN CONCEPTS and TRANSCRIPT; all but TRANSCRIPT only when non-empty.
+
+    Big picture first: a short excerpt alone doesn't say which course it's from, so the
+    title and earlier topics help the model name chapter-level concepts.
+    """
     sections = []
+    if title:
+        sections.append(f"LECTURE TITLE\n{title}")
+    if lecture_topics:
+        sections.append("LECTURE SO FAR\n" + "\n".join(f"- {t}" for t in lecture_topics))
     if topic:
         sections.append(f"TOPIC\n{topic}")
     if known_concepts:
@@ -86,8 +97,11 @@ def build_message(span: Span, topic: str | None, known_concepts: Sequence[str] =
     return "\n\n".join(sections)
 
 
-async def generate_questions(client: ModelClient, span: Span, topic: str | None, known_concepts: Sequence[str] = ()) -> list[GeneratedQuestion]:
-    text = build_message(span, topic, known_concepts)
+async def generate_questions(
+    client: ModelClient, span: Span, topic: str | None,
+    known_concepts: Sequence[str] = (), lecture_topics: Sequence[str] = (), title: str | None = None,
+) -> list[GeneratedQuestion]:
+    text = build_message(span, topic, known_concepts, lecture_topics, title)
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
 
     questions = []
@@ -149,6 +163,21 @@ def known_concepts(db: DbSession, session_id: UUID) -> list[str]:
         .limit(KNOWN_RECENT)
     ).all()
     return list(dict.fromkeys([*this_session, *recent]))   # dedupe, keep order
+
+
+def lecture_topics(db: DbSession, session_id: UUID, exclude_quiz_id: UUID | None = None) -> list[str]:
+    """Topics of this session's earlier quizzes, oldest first, without blanks or repeats.
+
+    The current quiz is excluded: its topic is already sent as TOPIC.
+    """
+    query = (
+        select(Quiz.topic)
+        .where(Quiz.session_id == session_id, Quiz.topic.is_not(None), Quiz.topic != "")
+        .order_by(Quiz.triggered_at, Quiz.span_start_ts)
+    )
+    if exclude_quiz_id is not None:
+        query = query.where(Quiz.quiz_id != exclude_quiz_id)
+    return list(dict.fromkeys(db.scalars(query).all()))
 
 
 def concept_key(name: str) -> str:

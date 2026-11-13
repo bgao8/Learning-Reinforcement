@@ -4,15 +4,16 @@ import time
 from datetime import UTC, datetime
 from uuid import UUID
 from functools import cache
+from typing import Annotated
 import numpy as np
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import Attempt, Question, Quiz, Session, User, TranscriptChunk
-from app.jobs.questions import generate_questions, keep_grounded, known_concepts, load_span, save_questions
+from app.jobs.questions import generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions
 from app.db.session import SessionLocal, get_db
 from app.api.deps import get_current_user, get_shift_client, get_smart_client
 from app.llm import ModelClient
@@ -34,6 +35,11 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 class SessionCreate(BaseModel):
     title: str | None = None
     source: str | None = None
+
+
+class SessionUpdate(BaseModel):
+    # the video title the user typed or pasted after starting; "" clears it
+    title: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
 
 
 class SessionOut(BaseModel):
@@ -85,6 +91,18 @@ def create_session(body: SessionCreate, db: DbSession = Depends(get_db), user: U
     live_sessions[new_session.session_id] = LiveSession(transcriber)
     # hands back the database object
     return new_session
+
+@router.patch("/{session_id}", response_model=SessionOut)
+def update_session(session_id: UUID, body: SessionUpdate, db: DbSession = Depends(get_db)):
+    """Set the session's title. Question generation reads it as LECTURE TITLE from the next quiz on."""
+    session = db.get(Session, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    session.title = body.title or None
+    db.commit()
+    db.refresh(session)
+    return session
+
 
 @router.patch("/{session_id}/end", response_model=SessionOut)
 async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
@@ -181,13 +199,15 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
         with SessionLocal() as db:
             span = load_span(db, session_id, trigger.span_start, trigger.span_end)
             known = known_concepts(db, session_id)
+            earlier = lecture_topics(db, session_id, exclude_quiz_id=quiz_id)
+            title = db.scalar(select(Session.title).where(Session.session_id == session_id))
         if span is None:
             log.warning("quiz %s: no transcript in span, no questions", quiz_id)
             return
 
         # no DB session held during the LLM call
         started = time.perf_counter()
-        generated = await generate_questions(client, span, trigger.topic, known)
+        generated = await generate_questions(client, span, trigger.topic, known, earlier, title)
         elapsed = time.perf_counter() - started
 
         kept = keep_grounded(generated, span.text)
