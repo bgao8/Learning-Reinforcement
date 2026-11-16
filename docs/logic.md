@@ -122,21 +122,46 @@ show the student exactly where the answer came from.
 2. `load_span` picks the session's chunks whose midpoint is in `[span_start, span_end)` and
    joins them into one `Span` (text, first/last chunk seq, start/end ts). No chunks → no
    questions, log a warning.
-3. `generate_questions` calls the **smart** client (Sonnet) with TOPIC (if known) + TRANSCRIPT
-   and `QUESTIONS_SCHEMA`; keeps at most 3.
+3. `generate_questions` calls the **smart** client (Sonnet) with LECTURE TITLE, LECTURE SO FAR,
+   TOPIC, KNOWN CONCEPTS (each only when non-empty; see Mastery below) + TRANSCRIPT and
+   `QUESTIONS_SCHEMA`; keeps at most 3.
 4. `keep_grounded` drops anything the transcript can't back up (below).
-5. `save_questions` writes one `questions` row per kept question with `quiz_id`, `options`
-   (JSONB, null for short answer) and all `span_*` fields.
+5. `save_questions` writes one `questions` row per kept question with `quiz_id`, `concept_id`,
+   `options` (JSONB, null for short answer) and all `span_*` fields.
+6. The quiz's `status` is set in the same commit as its questions (below).
 
-Failure anywhere in 2–5 is logged; the quiz row stays, with no questions. No DB session is
-held during the LLM call.
+No DB session is held during the LLM call.
 
-### Prompt (`server/src/app/prompts/questions_v1.txt`)
-- 2–3 questions, only from TRANSCRIPT, testing main ideas (why/how), not trivia; skip filler.
-- `evidence` is first in the schema so that the model commits to a word-for-word quote
-  before writing the question (intent, not measured).
+### Quiz status (`quizzes.status`, `quizzes.skip_reason`)
+Before these columns, a quiz with 0 questions looked the same whether the model declined, the
+grounding filter dropped everything, or the call failed. A FaceTime call (two real topic shifts,
+0 questions) is what exposed it.
+
+| status | when | skip_reason |
+|---|---|---|
+| NULL | generating, or generation never finished (server stopped mid-call, `--reload`), or the quiz predates the column | NULL |
+| `ready` | ≥ 1 question saved | NULL |
+| `empty` | nothing worth asking | `not_educational` / `too_little_content` (from the model; NULL if it gave none), `ungrounded` (keep_grounded dropped every question), `no_transcript` (no chunks in the span) |
+| `failed` | any exception: model unreachable, timed out or invalid output twice, DB error | NULL |
+
+`ready`/`empty` are written in the same commit as the questions, so a `ready` quiz always has
+them. `failed` is written in its own transaction (the failed one may be unusable); if even that
+fails it's logged, never raised. For #27: `count(*) group by status, skip_reason`, treating NULL
+on an ended session as failed.
+
+### Prompt (`server/src/app/prompts/questions_v2.txt`)
+- Up to 3 questions, usually 2–3, only from TRANSCRIPT, testing main ideas (why/how), not trivia;
+  skip filler.
+- `course` is first in the schema, then per question `evidence` before `concept` before the
+  question, so the model commits to the course, then a word-for-word quote, before writing
+  (intent, not measured).
 - Multiple choice: exactly 4 options, `answer_key` is one of them. Short answer: no options.
-- Fewer or zero questions is allowed when the span is thin.
+- No questions, with an optional `skip_reason`: `not_educational` (small talk, personal
+  conversation, ads, intros/outros) or `too_little_content`. A lecture tangent is still teaching
+  material. Before v2's last edit the prompt said "Write 2 or 3" and "or an empty list", which
+  contradicted each other; small talk was skipped by the model's own judgment, not a rule. A
+  reason sent next to real questions is ignored (the questions win). `course` is still required
+  then, as a best guess.
 
 ### Grounding filter (`keep_grounded`)
 A question is kept only if:
@@ -167,7 +192,11 @@ or a quiz id, optionally `--save`).
   Sonnet 5.5, judged by the eval harness (#27).
 - No eval set for question quality yet; the grounding filter only checks the quote exists,
   not that the answer follows from it.
-- A quiz can end up with zero questions; the UI (#21) should skip it.
+- A quiz with zero questions is never shown (pending only returns unanswered questions), but it
+  still resets the gate's cooldown, so a real topic right after small talk can wait up to 120 s.
+- Whether the model skips small talk consistently (and never skips real lectures) is unmeasured.
+  #27: labeled spans (lecture, lecture with tangent, technical conversation, small talk), 3–5
+  runs each.
 
 
 ## Grading — #22
@@ -242,3 +271,84 @@ the prompt now makes it `incorrect` on purpose. Six cases is a spot check, not a
 - No grader-agreement eval yet. #27 should label a set of answers and measure how often the
   verdict matches a human.
 - `reason` is thrown away; storing it would help debug disputed grades.
+
+
+## Mastery (Elo per concept) — #25
+
+Every graded answer moves the user's rating for the question's concept. Ratings are what #26
+will use to pick questions (recent misses first, then the weakest calibrated concepts).
+
+### Concepts (`server/src/app/jobs/questions.py`, prompt `questions_v2.txt`)
+A rating is only useful if the same material always lands on the same concept, across videos.
+- The model first names the **course** (the standard university course, e.g. "deep learning",
+  "vehicle powertrains"), independently of how narrow the video is. Then each question's
+  **concept** is a unit of that course's syllabus, like a textbook chapter: a video on
+  multi-head attention and a deep-learning overview both use "transformers". v1 named concepts
+  after the video's details ("pyruvate as the end product"), which split ratings into
+  one-question concepts; two prompt rounds fixed it on real runs.
+- Inputs that steer the name: LECTURE TITLE (optional, typed or pasted into the title box,
+  `PATCH /sessions/{id}`; the strongest clue), LECTURE SO FAR (earlier quiz topics, oldest
+  first), and KNOWN CONCEPTS (this session's concepts, then the user's 30 most recently rated).
+  The prompt says to copy a known name exactly when one fits.
+- `concepts.name_key` is the normalized name (lowercase, punctuation → space, whitespace
+  collapsed), unique. `get_or_create_concept` inserts with `ON CONFLICT (name_key) DO NOTHING`,
+  so "Glycolysis." and "glycolysis" are one concept even when two quizzes generate at once.
+- A blank concept → `concept_id` NULL → the question is never rated.
+- `course` is logged, not stored.
+
+### Rating rules (`server/src/app/jobs/mastery.py`, pure functions)
+| | |
+|---|---|
+| Start rating | 1000 (also the fixed rating of every question) |
+| Calibration | first 3 graded answers on a concept: fixed **+30 / 0 / −30** (right / partial / wrong) |
+| After that | weighted Elo: `K × (score − expected)`, K = 42, so ±21 at 1000 |
+| `expected` | `1 / (1 + 10^((1000 − rating) / SCALE))`, SCALE = 900 |
+| Range | clamped to 0..2000 |
+| Overall | attempt-weighted average of concepts with ≥ 3 answers; None until one exists. Derived, never stored |
+
+- **Why calibration**: with 0–2 answers the rating predicts nothing, so it shouldn't scale the
+  step. Fixed steps let a new concept move fast in either direction.
+- **Why weighted Elo**: a predicted result moves the rating a little, a surprising one a lot.
+  At 1200 a right answer is +15.7 and a wrong one −26.3, so ratings level off instead of
+  growing forever.
+- **What the numbers mean**: a rating settles where predicted accuracy matches real accuracy.
+  With SCALE 900, **1500 ≈ 78%** and **2000 ≈ 93%** sustained accuracy. All right answers reach
+  1500 after **35** and 2000 after **133** (pinned by a test). Tuning went: SCALE 600 made 2000
+  ≈ 98% but needed ~265 straight right answers; chess's 400 would need 99.7%, which grader noise
+  alone rules out. 900/42 keeps 1500 about where it was and halves the climb to 2000.
+- **Questions all rate 1000** (no per-question difficulty). That's why the start rating must
+  equal it: otherwise a brand-new learner would be predicted to fail and ratings would drift.
+- **Overall gates on attempts, not rating**: an earlier idea ("only concepts above 1100") let a
+  wrong answer push a concept under the cutoff and raise the overall. A test now checks a wrong
+  answer can never raise it.
+
+### Saving (`server/src/app/jobs/mastery_store.py`, `server/src/app/api/questions.py`)
+1. `create_attempt` grades the answer. If it was graded and the question has a concept, it calls
+   `record_answer` **before** adding the `Attempt`, so the count of earlier graded answers
+   excludes this one.
+2. `record_answer`: count earlier graded attempts on the concept → `INSERT … ON CONFLICT DO
+   NOTHING` (row at 1000 on first use) → `SELECT … FOR UPDATE` (two answers at once can't both
+   read the old rating) → `apply_change` → `updated_at = now()` → flush.
+3. The attempt and the rating commit together.
+4. The response adds `concept`, `elo_before`, `elo_after`, `calibrating` (still calibrating
+   *after* this answer, so the 3rd answer already reports false). All null when nothing was
+   rated.
+
+A skip is graded as blank → incorrect → −30 while calibrating. A failed grade (`graded: false`)
+or a question with no concept changes nothing.
+
+### Client (`client/quiz.js`)
+Under the verdict: `linear regression +21 → 1041`, plus `· calibrating` while it is. The delta
+is the difference of the rounded ratings, so it always matches the numbers shown. Hidden when
+nothing was rated. No end-of-quiz summary and no dashboard: past the MVP.
+
+### Known limits / next
+- No way to see all ratings yet (no `GET /users/me/mastery`, no dashboard); #26 reads the table
+  directly. To inspect: `select c.name, round(m.elo) from mastery m join concepts c using
+  (concept_id) order by m.elo desc;`
+- Multiple choice counts the same as short answer, though guessing gets 25% right. MC-heavy
+  concepts may rate a little high; #27 can check whether MC needs a smaller step.
+- Concept consistency depends on the model reusing names. Near-duplicates that normalize
+  differently ("neural nets" vs "neural networks") still split; pgvector dedup was skipped for
+  the MVP.
+- No decay: a rating earned months ago stays.

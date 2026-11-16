@@ -140,11 +140,33 @@ function showResult(attempt) {
         verdict.className = cls
         el("quiz-feedback").textContent = attempt.feedback
     }
+    showRating(attempt)
     el("quiz-ask").hidden = true
     el("quiz-result").hidden = false
     el("quiz-next").textContent = quiz.index + 1 < quiz.questions.length ? "Next" : "Done"
     el("quiz-next").disabled = false
     el("quiz-next").focus()
+}
+
+// #25: "linear regression +21 → 1041", plus "· calibrating" for the first 3 answers on a concept.
+// Hidden when nothing was rated (ungraded answer, or a question with no concept).
+function showRating(attempt) {
+    const line = el("quiz-rating")
+    line.replaceChildren()
+    line.hidden = !attempt || attempt.elo_after == null
+    if (line.hidden) return
+
+    // difference of the rounded ratings, so the delta always matches the numbers shown
+    const before = Math.round(attempt.elo_before)
+    const after = Math.round(attempt.elo_after)
+    const delta = after - before
+
+    const change = document.createElement("span")
+    change.className = "rating-delta " + (delta > 0 ? "rating-up" : delta < 0 ? "rating-down" : "")
+    change.textContent = delta > 0 ? `+${delta}` : delta < 0 ? `−${-delta}` : "±0"
+
+    line.append(`${attempt.concept} `, change, ` → ${after}`)
+    if (attempt.calibrating) line.append(" · calibrating")
 }
 
 async function nextQuestion() {

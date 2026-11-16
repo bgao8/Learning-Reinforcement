@@ -91,3 +91,12 @@ textarea {
 .verdict-partial { color: #f1c21b; }
 .verdict-incorrect { color: #ff8389; }
 .verdict-ungraded { color: #c6c6c6; }
+
+#quiz-rating {
+    font-size: 0.9em;
+    color: #c6c6c6;
+}
+
+.rating-delta { font-weight: 600; }
+.rating-up { color: #6fdc8c; }
+.rating-down { color: #ff8389; }
