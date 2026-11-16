@@ -31,8 +31,11 @@ def q(prompt="What does glycolysis split?", **overrides):
     return item
 
 
-def answer(*items, course="biology 101"):
-    return json.dumps({"course": course, "questions": list(items)})
+def answer(*items, course="biology 101", skip_reason=None):
+    out = {"course": course, "questions": list(items)}
+    if skip_reason:
+        out["skip_reason"] = skip_reason
+    return json.dumps(out)
 
 
 async def test_returns_generated_questions():
@@ -160,4 +163,38 @@ async def test_missing_course_is_retried():
 
 def test_course_comes_before_questions_in_the_schema():
     # generation follows schema order: the course must be settled before concepts are named
-    assert list(QUESTIONS_SCHEMA["properties"]) == ["course", "questions"]
+    assert list(QUESTIONS_SCHEMA["properties"]) == ["course", "questions", "skip_reason"]
+
+
+# --- skip_reason: why the model wrote no questions ---
+
+@pytest.mark.parametrize("reason", ["not_educational", "too_little_content"])
+async def test_no_questions_returns_the_models_reason(reason):
+    _, client = make([answer(skip_reason=reason, course="career development")])
+    result = await generate_questions(client, SPAN, "salaries")
+    assert (result.questions, result.skip_reason) == ([], reason)
+
+
+async def test_no_questions_and_no_reason_is_allowed():
+    _, client = make([answer()])
+    assert (await generate_questions(client, SPAN, "glycolysis")).skip_reason is None
+
+
+async def test_reason_next_to_questions_is_ignored():
+    # contradicts the prompt; the questions win
+    _, client = make([answer(q(), skip_reason="not_educational")])
+    result = await generate_questions(client, SPAN, "glycolysis")
+    assert (len(result.questions), result.skip_reason) == (1, None)
+
+
+async def test_unknown_skip_reason_is_retried():
+    fake, client = make([answer(skip_reason="boring"), answer(skip_reason="not_educational")])
+    result = await generate_questions(client, SPAN, "glycolysis")
+    assert result.skip_reason == "not_educational"
+    assert len(fake.requests) == 2
+
+
+def test_prompt_names_every_skip_reason():
+    # the model can only use the reasons the prompt explains
+    for reason in QUESTIONS_SCHEMA["properties"]["skip_reason"]["enum"]:
+        assert f'"{reason}"' in PROMPT

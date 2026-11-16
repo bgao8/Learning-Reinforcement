@@ -13,7 +13,9 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import Attempt, Question, Quiz, Session, User, TranscriptChunk
-from app.jobs.questions import generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions
+from app.jobs.questions import (
+    GeneratedQuiz, generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions,
+)
 from app.db.session import SessionLocal, get_db
 from app.api.deps import get_current_user, get_shift_client, get_smart_client
 from app.llm import ModelClient
@@ -193,8 +195,25 @@ async def checkpoint_task(live: LiveSession, client: ModelClient, smart_client: 
         live.checking = False
 
 
+def set_quiz_status(quiz_id: UUID, status: str, skip_reason: str | None = None) -> None:
+    """Record how generation ended, in its own transaction (see Quiz.status and Quiz.skip_reason)."""
+    with SessionLocal() as db:
+        quiz = db.get(Quiz, quiz_id)
+        quiz.status, quiz.skip_reason = status, skip_reason
+        db.commit()
+
+
+def why_empty(generated: GeneratedQuiz) -> str | None:
+    """Why no question survived: the model wrote none (its own reason, maybe None), or grounding dropped them all."""
+    return generated.skip_reason if not generated.questions else "ungrounded"
+
+
 async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, trigger: QuizTrigger) -> None:
-    """Generate, filter and save the quiz's questions. On any failure the quiz row stays, with no questions."""
+    """Generate, filter and save the quiz's questions, then set the quiz's status.
+
+    'ready' if any question survived, 'empty' if there was nothing worth asking (with
+    skip_reason saying why), 'failed' on any error. The quiz row always stays.
+    """
     try:
         with SessionLocal() as db:
             span = load_span(db, session_id, trigger.span_start, trigger.span_end)
@@ -203,6 +222,7 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
             title = db.scalar(select(Session.title).where(Session.session_id == session_id))
         if span is None:
             log.warning("quiz %s: no transcript in span, no questions", quiz_id)
+            set_quiz_status(quiz_id, "empty", "no_transcript")
             return
 
         # no DB session held during the LLM call
@@ -211,16 +231,24 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
         elapsed = time.perf_counter() - started
 
         kept = keep_grounded(generated.questions, span.text)
+        status, skip_reason = ("ready", None) if kept else ("empty", why_empty(generated))
         log.info(
-            "quiz %s: generated %d questions in %.1fs, kept %d, course %r, concepts %s",
-            quiz_id, len(generated.questions), elapsed, len(kept), generated.course, [q.concept for q in kept],
+            "quiz %s: %s%s, generated %d questions in %.1fs, kept %d, course %r, concepts %s",
+            quiz_id, status, f" ({skip_reason})" if skip_reason else "", len(generated.questions), elapsed,
+            len(kept), generated.course, [q.concept for q in kept],
         )
 
         with SessionLocal() as db:
             save_questions(db, session_id, quiz_id, span, kept)
+            quiz = db.get(Quiz, quiz_id)
+            quiz.status, quiz.skip_reason = status, skip_reason   # same commit as the questions
             db.commit()
     except Exception:
         log.exception("question generation failed for quiz %s", quiz_id)
+        try:
+            set_quiz_status(quiz_id, "failed")
+        except Exception:
+            log.exception("couldn't mark quiz %s failed", quiz_id)
 
 
 def save_pieces(db: DbSession, session_id: UUID, pieces: list[TranscriptPiece]) -> None:

@@ -4,6 +4,7 @@ from datetime import datetime
 from pgvector.sqlalchemy import Vector
 from sqlalchemy import (
     Boolean,
+    CheckConstraint,
     Float,
     ForeignKey,
     Index,
@@ -103,6 +104,13 @@ class Concept(Base):
 
 class Quiz(Base):
     __tablename__ = "quizzes"
+    __table_args__ = (
+        CheckConstraint("status IN ('ready', 'empty', 'failed')", name="quizzes_status_check"),
+        CheckConstraint(
+            "skip_reason IN ('not_educational', 'too_little_content', 'ungrounded', 'no_transcript')",
+            name="quizzes_skip_reason_check",
+        ),
+    )
 
     quiz_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), primary_key=True, server_default=text("gen_random_uuid()")
@@ -117,6 +125,13 @@ class Quiz(Base):
     span_start_ts: Mapped[float | None] = mapped_column(Float)
     span_end_ts: Mapped[float | None] = mapped_column(Float)
     topic: Mapped[str | None] = mapped_column(Text)
+    # how question generation ended: 'ready' (has questions), 'empty' (nothing worth asking,
+    # e.g. small talk) or 'failed' (error). NULL while generating, and for quizzes made before this column.
+    status: Mapped[str | None] = mapped_column(Text)
+    # why an 'empty' quiz has no questions. From the model: 'not_educational' or 'too_little_content'
+    # (NULL if it gave no reason). From our code: 'ungrounded' (the grounding check dropped every
+    # question) or 'no_transcript'. NULL for 'ready' and 'failed'.
+    skip_reason: Mapped[str | None] = mapped_column(Text)
 
 
 class Question(Base):

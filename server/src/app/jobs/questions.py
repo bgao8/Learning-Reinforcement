@@ -62,6 +62,8 @@ QUESTIONS_SCHEMA = {
                 "additionalProperties": False,
             },
         },
+        # only when questions is empty: why the model wrote none (see the end of the prompt)
+        "skip_reason": {"type": "string", "enum": ["not_educational", "too_little_content"]},
     },
     "required": ["course", "questions"],
     "additionalProperties": False,
@@ -81,6 +83,7 @@ class GeneratedQuestion:
 class GeneratedQuiz:
     course: str                          # the standard course the model placed this lecture in
     questions: list[GeneratedQuestion]
+    skip_reason: str | None = None       # set by the model only when it wrote no questions
 
 
 def build_message(
@@ -117,7 +120,9 @@ async def generate_questions(
         gen_q = GeneratedQuestion(prompt=q["prompt"], question_type=q["question_type"], options=q["options"], answer_key=q["answer_key"], evidence=q["evidence"], concept=q["concept"])
         questions.append(gen_q)
 
-    return GeneratedQuiz(course=response.output["course"], questions=questions)
+    # a reason next to real questions contradicts the prompt; the questions win
+    skip_reason = None if questions else response.output.get("skip_reason")
+    return GeneratedQuiz(course=response.output["course"], questions=questions, skip_reason=skip_reason)
 
 
 _PUNCT = re.compile(r"[^\w\s]")
