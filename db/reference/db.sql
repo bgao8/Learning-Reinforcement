@@ -46,7 +46,15 @@ CREATE TABLE quizzes (
     quiz_id        UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     session_id     UUID NOT NULL REFERENCES sessions(session_id),
     triggered_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
-    trigger_reason TEXT                   -- 'topic_shift' | 'length_threshold'
+    trigger_reason TEXT,                  -- 'topic_shift' | 'length'
+    span_start_ts  DOUBLE PRECISION,      -- seconds into the recording
+    span_end_ts    DOUBLE PRECISION,
+    topic          TEXT,
+    status         TEXT                   -- 'ready' | 'empty' | 'failed'; NULL while generating
+        CONSTRAINT quizzes_status_check CHECK (status IN ('ready', 'empty', 'failed')),
+    skip_reason    TEXT                   -- why an 'empty' quiz has no questions
+        CONSTRAINT quizzes_skip_reason_check
+        CHECK (skip_reason IN ('not_educational', 'too_little_content', 'ungrounded', 'no_transcript'))
 );
 
 CREATE TABLE questions (
