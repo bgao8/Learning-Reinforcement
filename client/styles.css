@@ -25,6 +25,22 @@ button {
     display: none !important;
 }
 
+#title-box {
+    margin: 10px 0 4px;
+}
+
+#title-input {
+    width: 260px;
+    font: inherit;
+    border-radius: 6px;
+    padding: 4px 6px;
+}
+
+#title-status {
+    font-size: 12px;
+    color: #ff8389;
+}
+
 .card {
     margin-top: 12px;
     width: 420px;
@@ -75,3 +91,12 @@ textarea {
 .verdict-partial { color: #f1c21b; }
 .verdict-incorrect { color: #ff8389; }
 .verdict-ungraded { color: #c6c6c6; }
+
+#quiz-rating {
+    font-size: 0.9em;
+    color: #c6c6c6;
+}
+
+.rating-delta { font-weight: 600; }
+.rating-up { color: #6fdc8c; }
+.rating-down { color: #ff8389; }

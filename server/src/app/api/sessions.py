@@ -4,15 +4,18 @@ import time
 from datetime import UTC, datetime
 from uuid import UUID
 from functools import cache
+from typing import Annotated
 import numpy as np
 
 from fastapi import APIRouter, Depends, HTTPException, Request
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, StringConstraints
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import Attempt, Question, Quiz, Session, User, TranscriptChunk
-from app.jobs.questions import generate_questions, keep_grounded, load_span, save_questions
+from app.jobs.questions import (
+    GeneratedQuiz, generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions,
+)
 from app.db.session import SessionLocal, get_db
 from app.api.deps import get_current_user, get_shift_client, get_smart_client
 from app.llm import ModelClient
@@ -34,6 +37,11 @@ router = APIRouter(prefix="/sessions", tags=["sessions"])
 class SessionCreate(BaseModel):
     title: str | None = None
     source: str | None = None
+
+
+class SessionUpdate(BaseModel):
+    # the video title the user typed or pasted after starting; "" clears it
+    title: Annotated[str, StringConstraints(strip_whitespace=True, max_length=300)] | None = None
 
 
 class SessionOut(BaseModel):
@@ -85,6 +93,18 @@ def create_session(body: SessionCreate, db: DbSession = Depends(get_db), user: U
     live_sessions[new_session.session_id] = LiveSession(transcriber)
     # hands back the database object
     return new_session
+
+@router.patch("/{session_id}", response_model=SessionOut)
+def update_session(session_id: UUID, body: SessionUpdate, db: DbSession = Depends(get_db)):
+    """Set the session's title. Question generation reads it as LECTURE TITLE from the next quiz on."""
+    session = db.get(Session, session_id)
+    if not session:
+        raise HTTPException(status_code=404, detail="session not found")
+    session.title = body.title or None
+    db.commit()
+    db.refresh(session)
+    return session
+
 
 @router.patch("/{session_id}/end", response_model=SessionOut)
 async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
@@ -175,28 +195,60 @@ async def checkpoint_task(live: LiveSession, client: ModelClient, smart_client: 
         live.checking = False
 
 
+def set_quiz_status(quiz_id: UUID, status: str, skip_reason: str | None = None) -> None:
+    """Record how generation ended, in its own transaction (see Quiz.status and Quiz.skip_reason)."""
+    with SessionLocal() as db:
+        quiz = db.get(Quiz, quiz_id)
+        quiz.status, quiz.skip_reason = status, skip_reason
+        db.commit()
+
+
+def why_empty(generated: GeneratedQuiz) -> str | None:
+    """Why no question survived: the model wrote none (its own reason, maybe None), or grounding dropped them all."""
+    return generated.skip_reason if not generated.questions else "ungrounded"
+
+
 async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, trigger: QuizTrigger) -> None:
-    """Generate, filter and save the quiz's questions. On any failure the quiz row stays, with no questions."""
+    """Generate, filter and save the quiz's questions, then set the quiz's status.
+
+    'ready' if any question survived, 'empty' if there was nothing worth asking (with
+    skip_reason saying why), 'failed' on any error. The quiz row always stays.
+    """
     try:
         with SessionLocal() as db:
             span = load_span(db, session_id, trigger.span_start, trigger.span_end)
+            known = known_concepts(db, session_id)
+            earlier = lecture_topics(db, session_id, exclude_quiz_id=quiz_id)
+            title = db.scalar(select(Session.title).where(Session.session_id == session_id))
         if span is None:
             log.warning("quiz %s: no transcript in span, no questions", quiz_id)
+            set_quiz_status(quiz_id, "empty", "no_transcript")
             return
 
         # no DB session held during the LLM call
         started = time.perf_counter()
-        generated = await generate_questions(client, span, trigger.topic)
+        generated = await generate_questions(client, span, trigger.topic, known, earlier, title)
         elapsed = time.perf_counter() - started
 
-        kept = keep_grounded(generated, span.text)
-        log.info("quiz %s: generated %d questions in %.1fs, kept %d", quiz_id, len(generated), elapsed, len(kept))
+        kept = keep_grounded(generated.questions, span.text)
+        status, skip_reason = ("ready", None) if kept else ("empty", why_empty(generated))
+        log.info(
+            "quiz %s: %s%s, generated %d questions in %.1fs, kept %d, course %r, concepts %s",
+            quiz_id, status, f" ({skip_reason})" if skip_reason else "", len(generated.questions), elapsed,
+            len(kept), generated.course, [q.concept for q in kept],
+        )
 
         with SessionLocal() as db:
             save_questions(db, session_id, quiz_id, span, kept)
+            quiz = db.get(Quiz, quiz_id)
+            quiz.status, quiz.skip_reason = status, skip_reason   # same commit as the questions
             db.commit()
     except Exception:
         log.exception("question generation failed for quiz %s", quiz_id)
+        try:
+            set_quiz_status(quiz_id, "failed")
+        except Exception:
+            log.exception("couldn't mark quiz %s failed", quiz_id)
 
 
 def save_pieces(db: DbSession, session_id: UUID, pieces: list[TranscriptPiece]) -> None:

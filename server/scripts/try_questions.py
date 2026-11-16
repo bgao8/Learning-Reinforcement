@@ -6,6 +6,7 @@
 
     python scripts/try_questions.py --session 80a22956 [--start 0 --end 150] [--topic "..."]
     python scripts/try_questions.py --session latest  # session with the newest chunks
+    python scripts/try_questions.py --title "..."     # send this LECTURE TITLE instead of the session's own
 
 Session mode runs on any transcript range without a quiz, so it can't --save
 (a Question row needs a quiz_id). Without --save nothing is written.
@@ -19,10 +20,11 @@ from uuid import UUID
 
 from sqlalchemy import String, cast, func, select
 
-from app.db.models import Quiz, TranscriptChunk
+from app.db.models import Quiz, Session, TranscriptChunk
 from app.db.session import SessionLocal
 from app.jobs.questions import (
-    PROMPT, QUESTIONS_SCHEMA, GeneratedQuestion, _well_formed, keep_grounded, load_span, save_questions,
+    PROMPT, QUESTIONS_SCHEMA, GeneratedQuestion, _well_formed, build_message, keep_grounded, known_concepts,
+    lecture_topics, load_span, save_questions,
 )
 from app.llm import Message, make_client
 
@@ -78,27 +80,33 @@ async def main(args) -> None:
             print(f"quiz {qid}  ({quiz.trigger_reason}, topic={topic!r})")
         print(f"span {start:.0f}s -> {end:.0f}s")
         span = load_span(db, session_id, start, end)
+        known = known_concepts(db, session_id)
+        earlier = lecture_topics(db, session_id, exclude_quiz_id=qid)
+        title = args.title if args.title is not None else db.get(Session, session_id).title
 
     if span is None:
         raise SystemExit("no transcript chunks in that span")
     print(f"span text: {len(span.text.split())} words, chunks {span.start_chunk}-{span.end_chunk}")
     print(textwrap.indent(textwrap.fill(span.text[:400] + " ...", 100), "  "), "\n")
 
+    print(f"lecture title: {title!r}")
+    print(f"lecture so far: {earlier or '(none)'}")
+    print(f"known concepts: {known or '(none)'}\n")
+
     # same prompt/schema as generate_questions, but keep the Response for timing and usage
-    text = f"TRANSCRIPT\n{span.text}"
-    if topic:
-        text = f"TOPIC\n{topic}\n\n{text}"
+    text = build_message(span, topic, known, earlier, title)
     client = make_client("smart")
     started = time.perf_counter()
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
     elapsed = time.perf_counter() - started
 
+    print(f"course: {response.output['course']!r}\n")
     generated = [GeneratedQuestion(**q) for q in response.output["questions"][:3]]
     kept = keep_grounded(generated, span.text)
 
     for i, q in enumerate(generated, 1):
         status = "KEPT" if q in kept else f"DROPPED ({drop_reason(q)})"
-        print(f"[{i}] {status}  {q.question_type}")
+        print(f"[{i}] {status}  {q.question_type}  concept={q.concept!r}")
         print(f"    Q: {q.prompt}")
         if q.options:
             print(f"    options: {q.options}")
@@ -125,6 +133,7 @@ if __name__ == "__main__":
     parser.add_argument("--start", type=float, help="span start in seconds (session mode, default 0)")
     parser.add_argument("--end", type=float, help="span end in seconds (session mode, default end of transcript)")
     parser.add_argument("--topic", help="topic hint to send (session mode)")
+    parser.add_argument("--title", help="lecture title to send (default: the session's saved title)")
     args = parser.parse_args()
 
     if args.session and (args.quiz_id or args.save):

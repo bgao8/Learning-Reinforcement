@@ -5,7 +5,7 @@ import numpy as np
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import select
-from sqlalchemy.exc import OperationalError
+from sqlalchemy.exc import IntegrityError, OperationalError
 from sqlalchemy.orm import Session as DbSession
 
 from contextlib import contextmanager
@@ -15,7 +15,7 @@ import json
 
 from app.api.deps import get_current_user, get_smart_client
 from app.api.sessions import checkpoint_task, get_transcriber, live_sessions, questions_task
-from app.db.models import Question, Quiz, Session, TranscriptChunk, User
+from app.db.models import Concept, Question, Quiz, Session, TranscriptChunk, User
 from app.llm.client import ModelClient
 from app.llm.errors import ModelUnavailable
 from app.llm.providers.fake import FakeProvider
@@ -78,6 +78,29 @@ def test_create_returns_open_session(client):
 
 def test_create_with_empty_body_is_allowed(client):
     assert client.post("/sessions", json={}).status_code == 201
+
+
+# --- PATCH /sessions/{id}: the optional video title ---
+
+def test_patch_sets_title_trimmed(client):
+    sid = start(client)
+    res = client.patch(f"/sessions/{sid}", json={"title": "  Flywheel KERS explained  "})
+    assert res.status_code == 200
+    assert res.json()["title"] == "Flywheel KERS explained"
+
+
+def test_patch_empty_title_clears_it(client):
+    sid = client.post("/sessions", json={"title": "old"}).json()["session_id"]
+    assert client.patch(f"/sessions/{sid}", json={"title": "   "}).json()["title"] is None
+
+
+def test_patch_title_over_300_chars_is_rejected(client):
+    sid = start(client)
+    assert client.patch(f"/sessions/{sid}", json={"title": "x" * 301}).status_code == 422
+
+
+def test_patch_unknown_session_is_404(client):
+    assert client.patch(f"/sessions/{uuid4()}", json={"title": "t"}).status_code == 404
 
 
 def test_create_saves_row_for_current_user(client, db, user):
@@ -309,12 +332,15 @@ def llm(*scripted):
     return ModelClient(provider=FakeProvider(list(scripted)), model="fake-model")
 
 
-def answer(*questions):
-    return json.dumps({"questions": list(questions)})
+def answer(*questions, skip_reason=None):
+    out = {"course": "biology 101", "questions": list(questions)}
+    if skip_reason:
+        out["skip_reason"] = skip_reason
+    return json.dumps(out)
 
 
-def question(evidence="glycolysis splits glucose", prompt="What does glycolysis split?", question_type="short_answer", options=(), answer_key="glucose"):
-    return {"evidence": evidence, "prompt": prompt, "question_type": question_type, "options": list(options), "answer_key": answer_key}
+def question(evidence="glycolysis splits glucose", prompt="What does glycolysis split?", question_type="short_answer", options=(), answer_key="glucose", concept="glycolysis"):
+    return {"evidence": evidence, "concept": concept, "prompt": prompt, "question_type": question_type, "options": list(options), "answer_key": answer_key}
 
 
 def saved_questions(db, quiz_id):
@@ -373,6 +399,7 @@ async def test_questions_task_without_transcript_skips_the_llm(db, recording, us
 
     assert client.provider.requests == []
     assert saved_questions(db, quiz.quiz_id) == []
+    assert (quiz.status, quiz.skip_reason) == ("empty", "no_transcript")
 
 
 @pytest.mark.anyio
@@ -384,3 +411,129 @@ async def test_questions_task_failure_keeps_quiz(db, recording, use_test_db):
 
     assert saved_questions(db, quiz.quiz_id) == []
     assert db.get(Quiz, quiz.quiz_id) is not None
+    assert (quiz.status, quiz.skip_reason) == ("failed", None)
+
+
+# --- quiz status: why a quiz has (or doesn't have) questions ---
+
+def test_new_quiz_has_no_status_until_generation_ends(db, recording):
+    assert make_quiz(db, recording.session_id).status is None
+
+
+@pytest.mark.anyio
+async def test_questions_task_marks_quiz_ready_when_questions_are_saved(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+
+    await questions_task(llm(answer(question())), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert (quiz.status, quiz.skip_reason) == ("ready", None)
+
+
+@pytest.mark.anyio
+async def test_questions_task_saves_the_models_skip_reason(db, recording, use_test_db):
+    # small talk: the shift fired, but the model found nothing worth asking
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+
+    await questions_task(llm(answer(skip_reason="not_educational")), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert saved_questions(db, quiz.quiz_id) == []
+    assert (quiz.status, quiz.skip_reason) == ("empty", "not_educational")
+
+
+@pytest.mark.anyio
+async def test_questions_task_empty_without_a_reason_saves_none(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+
+    await questions_task(llm(answer()), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert (quiz.status, quiz.skip_reason) == ("empty", None)
+
+
+@pytest.mark.anyio
+async def test_questions_task_marks_quiz_empty_when_grounding_drops_all(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+    invented = question(evidence="glycolysis makes 36 ATP")
+
+    await questions_task(llm(answer(invented)), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert (quiz.status, quiz.skip_reason) == ("empty", "ungrounded")
+
+
+def test_status_outside_the_allowed_values_is_rejected(db, recording):
+    quiz = make_quiz(db, recording.session_id)
+    quiz.status = "done"
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
+def test_skip_reason_outside_the_allowed_values_is_rejected(db, recording):
+    quiz = make_quiz(db, recording.session_id)
+    quiz.skip_reason = "boring"
+    with pytest.raises(IntegrityError):
+        db.flush()
+
+
+@pytest.mark.anyio
+async def test_questions_task_tags_questions_with_concepts(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+    a = question(prompt="a", concept="Glycolysis")
+    b = question(prompt="b", concept="glycolysis.")      # same concept after normalizing
+    c = question(prompt="c", concept="")                 # blank: no concept, no rating later
+
+    await questions_task(llm(answer(a, b, c)), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    rows = {r.prompt: r for r in saved_questions(db, quiz.quiz_id)}
+    assert rows["a"].concept_id is not None
+    assert rows["a"].concept_id == rows["b"].concept_id
+    assert db.get(Concept, rows["a"].concept_id).name_key == "glycolysis"
+    assert rows["c"].concept_id is None
+
+
+@pytest.mark.anyio
+async def test_questions_task_offers_the_sessions_concepts_for_reuse(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    first = make_quiz(db, recording.session_id)
+    await questions_task(llm(answer(question(concept="glycolysis"))), recording.session_id, first.quiz_id, TRIGGER)
+
+    second = make_quiz(db, recording.session_id)
+    client = llm(answer(question(prompt="again")))
+    await questions_task(client, recording.session_id, second.quiz_id, TRIGGER)
+
+    assert "KNOWN CONCEPTS\n- glycolysis" in client.provider.requests[0].messages[0].content
+
+
+@pytest.mark.anyio
+async def test_questions_task_sends_earlier_quiz_topics(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    earlier = Quiz(session_id=recording.session_id, trigger_reason="topic_shift", span_start_ts=0.0, span_end_ts=5.0, topic="cell structure")
+    db.add(earlier)
+    db.flush()
+    current = make_quiz(db, recording.session_id)
+    current.topic = "glycolysis"
+    db.flush()
+    client = llm(answer(question()))
+
+    await questions_task(client, recording.session_id, current.quiz_id, TRIGGER)
+
+    content = client.provider.requests[0].messages[0].content
+    assert content.startswith("LECTURE SO FAR\n- cell structure\n\nTOPIC\nglycolysis")
+
+
+
+@pytest.mark.anyio
+async def test_questions_task_sends_the_session_title_first(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    recording.title = "Cellular respiration, lecture 4"
+    db.flush()
+    quiz = make_quiz(db, recording.session_id)
+    client = llm(answer(question()))
+
+    await questions_task(client, recording.session_id, quiz.quiz_id, TRIGGER)
+
+    content = client.provider.requests[0].messages[0].content
+    assert content.startswith("LECTURE TITLE\nCellular respiration, lecture 4\n\n")
