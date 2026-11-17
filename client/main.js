@@ -1,17 +1,34 @@
-const {app, BrowserWindow, desktopCapturer, ipcMain, session, globalShortcut, systemPreferences } = require("electron")
+const {app, BrowserWindow, desktopCapturer, ipcMain, screen, session, globalShortcut, systemPreferences } = require("electron")
 const path = require("node:path")
 const { execFile } = require("node:child_process")
 
 // presses the system play/pause key; built from native/mediakey.swift (npm run build:native)
 const MEDIAKEY = path.join(__dirname, "native", "mediakey")
 
+const MARGIN = 16          // gap between the overlay and the screen's top-right corner
+const MAX_SIZE = 2000      // sanity cap on sizes the renderer asks for
+
 let clickThrough = false
 let win = null
 
+// sets click-through and tells the renderer, which dims the UI while it's on
+function setClickThrough(on, why) {
+    if (!win || win.isDestroyed()) { return }
+    clickThrough = on
+    win.setIgnoreMouseEvents(on)
+    win.webContents.send("click-through", on)
+    console.log(`[main] click-through ${on ? "ON" : "OFF"}${why ? ` (${why})` : ""}`)
+}
+
 function createWindow() {
+    const width = 400
+    const height = 120
+    const area = screen.getPrimaryDisplay().workArea
     win = new BrowserWindow({
-        width: 640,
-        height: 620,
+        width,
+        height,
+        x: area.x + area.width - width - MARGIN,
+        y: area.y + MARGIN,
         title: "Frizz",
         webPreferences: {
             preload: path.join(__dirname, "preload.js")
@@ -22,6 +39,8 @@ function createWindow() {
     })
     win.setAlwaysOnTop(true, "screen-saver")
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
+    // a reload resets the renderer's state; tell it the real click-through setting
+    win.webContents.on("did-finish-load", () => win.webContents.send("click-through", clickThrough))
     win.loadFile("index.html")
     return win
 }
@@ -35,10 +54,7 @@ app.whenReady().then(() => {
     console.log(`[main] accessibility ${trusted ? "granted" : "missing (auto-pause disabled until granted and relaunched)"}`)
 
     const ok = globalShortcut.register("CommandOrControl+Shift+K", () => {
-        if (!win || win.isDestroyed()) { return }
-        clickThrough = !clickThrough
-        win.setIgnoreMouseEvents(clickThrough)
-        console.log(`[main] click-through ${clickThrough ? "ON" : "OFF"}`)
+        setClickThrough(!clickThrough)
     })
 
     if (!ok) { console.error("[main] hotkey already taken by another app") }
@@ -50,12 +66,21 @@ app.whenReady().then(() => {
     // a question card opened: it must be clickable and accept typing
     ipcMain.handle("quiz-shown", () => {
         if (!win || win.isDestroyed()) { return }
-        if (clickThrough) {
-            clickThrough = false
-            win.setIgnoreMouseEvents(false)
-            console.log("[main] click-through OFF (quiz shown)")
-        }
+        if (clickThrough) { setClickThrough(false, "quiz shown") }
         win.focus()
+    })
+
+    // #59: the renderer reports its UI's size and the window shrinks to fit, so the transparent
+    // area around the pill/panel never blocks clicks on the video. The right edge stays put, so
+    // expanding the pill into the panel grows the window leftward and down.
+    ipcMain.handle("resize", (_e, width, height) => {
+        if (!win || win.isDestroyed()) { return }
+        if (!Number.isFinite(width) || !Number.isFinite(height)) { return }
+        const w = Math.min(MAX_SIZE, Math.max(1, Math.round(width)))
+        const h = Math.min(MAX_SIZE, Math.max(1, Math.round(height)))
+        const b = win.getBounds()
+        if (b.width === w && b.height === h) { return }
+        win.setBounds({ x: b.x + b.width - w, y: b.y, width: w, height: h })
     })
 
     // press ⏯ once (#20). Never throws: resolves { ok } or { ok: false, reason } so the
