@@ -74,6 +74,20 @@ def test_multiple_choice_is_graded_without_model(api, db, recording):
     assert (response.json()["graded"], response.json()["is_correct"], response.json()["score"]) == (True, True, 1.0)
 
 
+def test_attempt_reveals_the_answer_key(api, db, recording):
+    # only after answering: the UI marks the right option on a wrong pick
+    question = add_question(
+        db, recording.session_id, question_type="multiple_choice",
+        options=["nucleus", "cytoplasm"], answer_key="cytoplasm",
+    )
+    assert answer(api, question.question_id, "nucleus").json()["answer_key"] == "cytoplasm"
+
+
+def test_pending_questions_never_include_the_answer_key():
+    from app.api.sessions import PendingQuestion
+    assert "answer_key" not in PendingQuestion.model_fields
+
+
 def test_model_failure_saves_ungraded_attempt(api, db, recording):
     question = add_question(db, recording.session_id)
     api.script.append(ModelUnavailable("down"))

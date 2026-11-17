@@ -35,7 +35,7 @@ class FakeTranscriber:
     async def transcribe(self, samples):
         return "hello"
 
-    async def transcribe_words(self, samples):
+    async def transcribe_words(self, samples, prompt=None):
         self.calls += 1
         mid = len(samples) / SAMPLE_RATE / 2
         return [Word(mid - 0.1, mid + 0.1, "hello")]
@@ -87,6 +87,18 @@ def test_patch_sets_title_trimmed(client):
     res = client.patch(f"/sessions/{sid}", json={"title": "  Flywheel KERS explained  "})
     assert res.status_code == 200
     assert res.json()["title"] == "Flywheel KERS explained"
+
+
+def test_patch_title_reaches_the_live_session(client):
+    # Whisper's prompt uses it from the next window on
+    sid = client.post("/sessions", json={}).json()["session_id"]
+    client.patch(f"/sessions/{sid}", json={"title": "Flywheel KERS"})
+    assert live_sessions[UUID(sid)].title == "Flywheel KERS"
+
+
+def test_create_passes_the_title_to_the_live_session(client):
+    sid = client.post("/sessions", json={"title": "Flywheel KERS"}).json()["session_id"]
+    assert live_sessions[UUID(sid)].title == "Flywheel KERS"
 
 
 def test_patch_empty_title_clears_it(client):
