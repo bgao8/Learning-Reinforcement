@@ -11,18 +11,25 @@ pytestmark = pytest.mark.anyio
 class FakeTranscriber:
     """Says one word in the middle of each window's owned stretch, and records its calls."""
 
-    def __init__(self):
+    def __init__(self, words=None):
         self.calls = []
+        self.prompts = []
+        self.words = words   # text for each window, in order; default "word1", "word2", ...
 
     async def transcribe(self, samples):
         return ""
 
-    async def transcribe_words(self, samples):
+    async def transcribe_words(self, samples, prompt=None):
         self.calls.append(len(samples) / SAMPLE_RATE)
+        self.prompts.append(prompt)
         n = len(self.calls)
         # the first window has no left margin, so its owned stretch starts at 0, not 1
         mid = 2.5 if n == 1 else 3.5
-        return [Word(mid - 0.1, mid + 0.1, f"word{n}")]
+        if self.words is None:
+            return [Word(mid - 0.1, mid + 0.1, f"word{n}")]
+        texts = self.words[n - 1].split()
+        step = 0.2 / len(texts)
+        return [Word(mid - 0.1 + i * step, mid - 0.1 + (i + 1) * step, t) for i, t in enumerate(texts)]
 
 
 def loud(seconds: float) -> np.ndarray:
@@ -114,3 +121,29 @@ async def test_gate_timings_come_from_settings(monkeypatch):
     monkeypatch.setattr(settings, "gate_check_every_s", 3.0)
     gate = LiveSession(FakeTranscriber()).gate
     assert (gate.cooldown_s, gate.force_s, gate.check_every_s) == (11.0, 22.0, 3.0)
+
+
+# --- Whisper prompt: title, names so far, text before the window ---
+
+async def test_first_window_has_no_prompt_without_a_title():
+    fake = FakeTranscriber()
+    await LiveSession(fake).add_chunk(0, loud(6))
+    assert fake.prompts == [None]
+
+
+async def test_prompt_carries_title_names_and_earlier_text():
+    fake = FakeTranscriber(words=["then the GR Corolla", "went faster", "on the track"])
+    live = LiveSession(fake, title="Toyota aero")
+    for seq in range(3):
+        await live.add_chunk(seq, loud(5))   # 15 s: windows at 0–5 and 5–10 are done
+    assert fake.prompts[0] == "Toyota aero."
+    assert fake.prompts[1] == "Toyota aero. GR Corolla. then the GR Corolla"
+
+
+async def test_title_change_reaches_the_next_window():
+    fake = FakeTranscriber()
+    live = LiveSession(fake)
+    await live.add_chunk(0, loud(6))
+    live.title = "Flywheel KERS"
+    await live.add_chunk(1, loud(5))
+    assert fake.prompts[1].startswith("Flywheel KERS.")

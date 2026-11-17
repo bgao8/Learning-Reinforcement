@@ -16,17 +16,19 @@ class MlxWhisperTranscriber:
         words = await self.transcribe_words(samples)
         return " ".join(word.text for word in words)
 
-    async def transcribe_words(self, samples: np.ndarray) -> list[Word]:
+    async def transcribe_words(self, samples: np.ndarray, prompt: str | None = None) -> list[Word]:
         async with self._lock:
-            return await asyncio.to_thread(self._transcribe_words_sync, samples)
+            return await asyncio.to_thread(self._transcribe_words_sync, samples, prompt)
 
     # runs Whisper
-    def _transcribe_words_sync(self, samples: np.ndarray) -> list[Word]:
+    def _transcribe_words_sync(self, samples: np.ndarray, prompt: str | None = None) -> list[Word]:
         result = mlx_whisper.transcribe(
             samples.astype(np.float32, copy=False),
             path_or_hf_repo=self._model,
             language=self._language,
-            word_timestamps=True
+            word_timestamps=True,
+            # text Whisper treats as coming right before the audio; steers spellings (stt/names.py)
+            initial_prompt=prompt,
         )
         lst = []
         for seg in result["segments"]:

@@ -28,6 +28,8 @@ class AttemptOut(BaseModel):
     is_correct: bool | None
     score: float | None
     feedback: str | None
+    # revealed only after answering, so the UI can mark the right option on a wrong pick (#59)
+    answer_key: str | None = None
     # rating change (#25); all None when the answer wasn't graded or the question has no concept
     concept: str | None = None
     elo_before: float | None = None
@@ -75,6 +77,7 @@ async def create_attempt(
         is_correct=attempt.is_correct,
         score=attempt.score,
         feedback=attempt.feedback,
+        answer_key=question.answer_key,
         concept=rating.concept if rating else None,
         elo_before=rating.elo_before if rating else None,
         elo_after=rating.elo_after if rating else None,

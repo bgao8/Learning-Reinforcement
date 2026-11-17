@@ -90,7 +90,7 @@ def create_session(body: SessionCreate, db: DbSession = Depends(get_db), user: U
     db.commit()
     # reloads row
     db.refresh(new_session)
-    live_sessions[new_session.session_id] = LiveSession(transcriber)
+    live_sessions[new_session.session_id] = LiveSession(transcriber, title=new_session.title)
     # hands back the database object
     return new_session
 
@@ -103,6 +103,10 @@ def update_session(session_id: UUID, body: SessionUpdate, db: DbSession = Depend
     session.title = body.title or None
     db.commit()
     db.refresh(session)
+    # Whisper's prompt uses the title too, from the next window on
+    live = live_sessions.get(session_id)
+    if live is not None:
+        live.title = session.title
     return session
 
 

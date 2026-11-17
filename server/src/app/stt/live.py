@@ -3,6 +3,7 @@ import numpy as np
 from dataclasses import dataclass
 
 from app.stt.buffer import TranscriptBuffer
+from app.stt.names import NameGlossary, whisper_prompt
 from app.stt.silence import is_silent
 from app.stt.transcriber import Transcriber
 from app.stt.windower import AudioWindower, Window, owned_words
@@ -23,8 +24,10 @@ class TranscriptPiece:
 
 
 class LiveSession:
-    def __init__(self, transcriber: Transcriber):
+    def __init__(self, transcriber: Transcriber, title: str | None = None):
         self._transcriber = transcriber
+        self.title = title            # the video title; PATCH /sessions/{id} updates it mid-session
+        self.names = NameGlossary()   # names Whisper has written so far, for the Whisper prompt
         self._windower = AudioWindower()
         self.buffer = TranscriptBuffer()
         self.next_seq = 0
@@ -71,12 +74,20 @@ class LiveSession:
         if is_silent(window.samples):
             return None
 
-        words = await self._transcriber.transcribe_words(window.samples)
+        prompt = self.whisper_prompt(window)
+        words = await self._transcriber.transcribe_words(window.samples, prompt=prompt)
         kept = owned_words(window, words)
         self.buffer.add(kept)
+        self.names.add([w.text for w in kept])
 
         if not kept:
             return None
 
         text = " ".join(w.text for w in kept)
         return TranscriptPiece(seq, window.own_start, window.own_end, text)
+
+    def whisper_prompt(self, window: Window) -> str | None:
+        """Title, names so far and the text right before the window's audio starts (not the
+        margin it shares with the previous window, or Whisper would expect those words twice)."""
+        recent = self.buffer.between(window.t0 - 30, window.t0)
+        return whisper_prompt(self.title, self.names.terms(), recent)
