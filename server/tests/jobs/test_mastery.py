@@ -7,12 +7,14 @@
 - All right answers: 1500 after 35, 2000 after 133.
 - Ratings are clamped to 0..2000.
 - Overall = attempt-weighted average of concepts with 3+ answers; None until one exists.
+- Tiers for the question prompt (#26): one answer either way stays "learning"; two net answers move
+  a tier; about five in a row reach "very weak" / "very solid". No rating yet is "new".
 """
 import pytest
 
 from app.jobs.mastery import (
     CALIBRATION_ATTEMPTS, MAX_RATING, MIN_RATING, START_RATING, apply_change, expected, is_calibrating,
-    overall_rating, rating_change,
+    mastery_tier, overall_rating, rating_change,
 )
 
 
@@ -166,3 +168,36 @@ def test_all_right_answers_reach_1500_after_35_and_2000_after_133():
             if target not in reached and rating >= target:
                 reached[target] = answers
     assert reached == {1500: 35, 2000: 133}
+
+
+# --- mastery_tier ---
+
+@pytest.mark.parametrize("elo, tier", [
+    (None, "new"),
+    (MIN_RATING, "very weak"),     # 0.0 is a rating, not "no rating"
+    (879.9, "very weak"),
+    (880.0, "weak"),
+    (954.9, "weak"),
+    (955.0, "learning"),
+    (START_RATING, "learning"),
+    (1044.9, "learning"),
+    (1045.0, "solid"),
+    (1119.9, "solid"),
+    (1120.0, "very solid"),
+    (MAX_RATING, "very solid"),
+])
+def test_tier_boundaries(elo, tier):
+    assert mastery_tier(elo) == tier
+
+
+@pytest.mark.parametrize("score, tiers", [
+    (1.0, ["learning", "solid", "solid", "solid", "very solid"]),
+    (0.0, ["learning", "weak", "weak", "weak", "very weak"]),
+])
+def test_tier_after_each_answer_in_a_streak(score, tiers):
+    # one lucky guess or one slip doesn't change the tier; two do; five in a row reach the extremes
+    rating, seen = START_RATING, []
+    for answers_before in range(5):
+        rating = apply_change(rating, score, answers_before)
+        seen.append(mastery_tier(rating))
+    assert seen == tiers

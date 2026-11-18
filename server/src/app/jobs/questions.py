@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.db.models import Concept, Mastery, Question, Quiz, Session, TranscriptChunk
 from app.llm import Message, ModelClient
+from app.jobs.mastery import mastery_tier
 
 @dataclass(frozen=True)
 class Span:
@@ -17,6 +18,12 @@ class Span:
     end_chunk: int
     start_ts: float
     end_ts: float
+
+
+@dataclass(frozen=True)
+class KnownConcept:
+    name: str
+    elo: float | None
 
 
 def load_span(db: DbSession, session_id: UUID, start: float, end: float) -> Span | None:
@@ -39,7 +46,7 @@ def load_span(db: DbSession, session_id: UUID, start: float, end: float) -> Span
     )
     return span
 
-PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v2.txt").read_text()
+PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v3.txt").read_text()
 
 QUESTIONS_SCHEMA = {
     "type": "object",
@@ -87,10 +94,12 @@ class GeneratedQuiz:
 
 
 def build_message(
-    span: Span, topic: str | None, known_concepts: Sequence[str] = (), lecture_topics: Sequence[str] = (),
+    span: Span, topic: str | None, known_concepts: Sequence[KnownConcept] = (), lecture_topics: Sequence[str] = (),
     title: str | None = None,
 ) -> str:
     """LECTURE TITLE, LECTURE SO FAR, TOPIC, KNOWN CONCEPTS and TRANSCRIPT; all but TRANSCRIPT only when non-empty.
+
+    Each known concept is sent with its mastery tier, "- glycolysis (weak)", which the prompt's adapt rules act on.
 
     Big picture first: a short excerpt alone doesn't say which course it's from, so the
     title and earlier topics help the model name chapter-level concepts.
@@ -103,14 +112,14 @@ def build_message(
     if topic:
         sections.append(f"TOPIC\n{topic}")
     if known_concepts:
-        sections.append("KNOWN CONCEPTS\n" + "\n".join(f"- {name}" for name in known_concepts))
+        sections.append("KNOWN CONCEPTS\n" + "\n".join(f"- {c.name} ({mastery_tier(c.elo)})" for c in known_concepts))
     sections.append(f"TRANSCRIPT\n{span.text}")
     return "\n\n".join(sections)
 
 
 async def generate_questions(
     client: ModelClient, span: Span, topic: str | None,
-    known_concepts: Sequence[str] = (), lecture_topics: Sequence[str] = (), title: str | None = None,
+    known_concepts: Sequence[KnownConcept] = (), lecture_topics: Sequence[str] = (), title: str | None = None,
 ) -> GeneratedQuiz:
     text = build_message(span, topic, known_concepts, lecture_topics, title)
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
@@ -154,28 +163,38 @@ def keep_grounded(questions: list[GeneratedQuestion], span_text: str) -> list[Ge
 KNOWN_RECENT = 30   # how many of the user's most recently rated concepts to offer for reuse
 
 
-def known_concepts(db: DbSession, session_id: UUID) -> list[str]:
-    """Concept names the generator should reuse: this session's first, then the user's recently rated ones.
+def known_concepts(db: DbSession, session_id: UUID) -> list[KnownConcept]:
+    """Concepts to offer the generator, each with the user's rating: this session's first, then the user's recently rated ones.
 
-    Reusing names keeps one concept from splitting into near-duplicates ("glycolysis" vs
-    "the glycolysis pathway"), which would leave each copy with too few attempts to rate.
+    Two jobs. Reusing names keeps one concept from splitting into near-duplicates ("glycolysis"
+    vs "the glycolysis pathway"), which would leave each copy with too few attempts to rate. The
+    rating (None if never answered) becomes a mastery tier the prompt adapts its questions to (#26).
     """
-    this_session = db.scalars(
-        select(Concept.name)
+    this_session = db.execute(
+        select(Concept.name, Mastery.elo)
         .join(Question, Question.concept_id == Concept.concept_id)
+        .join(Session, Session.session_id == Question.session_id)
+        .outerjoin(Mastery, (Mastery.concept_id == Concept.concept_id) & (Mastery.user_id == Session.user_id))
         .where(Question.session_id == session_id)
-        .group_by(Concept.concept_id, Concept.name)
+        .group_by(Concept.concept_id, Concept.name, Mastery.elo)
         .order_by(Concept.name)
     ).all()
-    recent = db.scalars(
-        select(Concept.name)
+    recent = db.execute(
+        select(Concept.name, Mastery.elo)
         .join(Mastery, Mastery.concept_id == Concept.concept_id)
         .join(Session, Session.user_id == Mastery.user_id)
         .where(Session.session_id == session_id)
         .order_by(Mastery.updated_at.desc())
         .limit(KNOWN_RECENT)
     ).all()
-    return list(dict.fromkeys([*this_session, *recent]))   # dedupe, keep order
+
+    merged = {}
+    # dedupe by name, first one wins: this session's concepts stay in front
+    for name, elo in [*this_session, *recent]:
+        if name not in merged:
+            merged[name] = KnownConcept(name, elo)
+
+    return list(merged.values())
 
 
 def lecture_topics(db: DbSession, session_id: UUID, exclude_quiz_id: UUID | None = None) -> list[str]:

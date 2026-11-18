@@ -516,7 +516,8 @@ async def test_questions_task_offers_the_sessions_concepts_for_reuse(db, recordi
     client = llm(answer(question(prompt="again")))
     await questions_task(client, recording.session_id, second.quiz_id, TRIGGER)
 
-    assert "KNOWN CONCEPTS\n- glycolysis" in client.provider.requests[0].messages[0].content
+    # asked in the first quiz but not answered yet: offered with no rating
+    assert "KNOWN CONCEPTS\n- glycolysis (new)" in client.provider.requests[0].messages[0].content
 
 
 @pytest.mark.anyio

@@ -3,12 +3,16 @@ import json
 
 import pytest
 
-from app.jobs.questions import PROMPT, QUESTIONS_SCHEMA, GeneratedQuestion, GeneratedQuiz, Span, build_message, generate_questions
+from app.jobs.questions import (
+    PROMPT, QUESTIONS_SCHEMA, GeneratedQuestion, GeneratedQuiz, KnownConcept, Span, build_message, generate_questions,
+)
 from app.llm.client import ModelClient
 from app.llm.errors import InvalidOutput
 from app.llm.providers.fake import FakeProvider
 
 pytestmark = pytest.mark.anyio
+
+GLYCOLYSIS = KnownConcept("glycolysis", None)
 
 SPAN = Span(text="so glycolysis splits glucose", start_chunk=0, end_chunk=0, start_ts=0.0, end_ts=5.0)
 
@@ -120,9 +124,10 @@ async def test_missing_concept_is_retried():
 
 async def test_sends_known_concepts_between_topic_and_transcript():
     fake, client = make([answer(q())])
-    await generate_questions(client, SPAN, "glycolysis", ["glycolysis", "atp production"])
+    known = [KnownConcept("glycolysis", 940.0), KnownConcept("atp production", None)]
+    await generate_questions(client, SPAN, "glycolysis", known)
     content = fake.requests[0].messages[0].content
-    assert "KNOWN CONCEPTS\n- glycolysis\n- atp production" in content
+    assert "KNOWN CONCEPTS\n- glycolysis (weak)\n- atp production (new)" in content
     assert content.index("TOPIC") < content.index("KNOWN CONCEPTS") < content.index("TRANSCRIPT")
 
 
@@ -133,18 +138,18 @@ def test_no_known_concepts_section_when_empty():
 
 async def test_sends_lecture_so_far_first():
     fake, client = make([answer(q())])
-    await generate_questions(client, SPAN, "glycolysis", ["glycolysis"], ["cell structure", "enzymes"])
+    await generate_questions(client, SPAN, "glycolysis", [GLYCOLYSIS], ["cell structure", "enzymes"])
     content = fake.requests[0].messages[0].content
     assert content.startswith("LECTURE SO FAR\n- cell structure\n- enzymes\n\nTOPIC")
     assert content.index("TOPIC") < content.index("KNOWN CONCEPTS") < content.index("TRANSCRIPT")
 
 
 def test_no_lecture_so_far_section_when_empty():
-    assert "LECTURE SO FAR" not in build_message(SPAN, "glycolysis", ["glycolysis"], [])
+    assert "LECTURE SO FAR" not in build_message(SPAN, "glycolysis", [GLYCOLYSIS], [])
 
 
 def test_lecture_title_comes_first():
-    message = build_message(SPAN, "glycolysis", ["glycolysis"], ["cell structure"], "Bio 101: respiration")
+    message = build_message(SPAN, "glycolysis", [GLYCOLYSIS], ["cell structure"], "Bio 101: respiration")
     assert message.startswith("LECTURE TITLE\nBio 101: respiration\n\nLECTURE SO FAR")
 
 

@@ -4,7 +4,7 @@ from datetime import UTC, datetime, timedelta
 from sqlalchemy import func, select
 
 from app.db.models import Concept, Mastery, Question, Quiz, Session, User
-from app.jobs.questions import get_or_create_concept, known_concepts, lecture_topics
+from app.jobs.questions import KnownConcept, get_or_create_concept, known_concepts, lecture_topics
 
 
 def concept_count(db) -> int:
@@ -45,10 +45,11 @@ def add_question(db, session_id, concept_name):
     db.flush()
 
 
-def rate(db, user_id, concept_name, minutes_ago):
+def rate(db, user_id, concept_name, minutes_ago, elo=1000.0):
     db.add(Mastery(
         user_id=user_id,
         concept_id=get_or_create_concept(db, concept_name),
+        elo=elo,
         updated_at=datetime.now(UTC) - timedelta(minutes=minutes_ago),
     ))
     db.flush()
@@ -62,11 +63,40 @@ def test_session_concepts_then_recently_rated_ones(db, recording, user):
     add_question(db, recording.session_id, "photosynthesis")
     add_question(db, recording.session_id, "glycolysis")
     add_question(db, recording.session_id, "glycolysis")      # used twice, listed once
-    rate(db, user.user_id, "osmosis", minutes_ago=50)
-    rate(db, user.user_id, "mitosis", minutes_ago=5)
+    rate(db, user.user_id, "osmosis", minutes_ago=50, elo=940.0)
+    rate(db, user.user_id, "mitosis", minutes_ago=5, elo=1060.0)
     rate(db, user.user_id, "glycolysis", minutes_ago=1)      # already listed from the session
 
-    assert known_concepts(db, recording.session_id) == ["glycolysis", "photosynthesis", "mitosis", "osmosis"]
+    assert known_concepts(db, recording.session_id) == [
+        KnownConcept("glycolysis", 1000.0),
+        KnownConcept("photosynthesis", None),
+        KnownConcept("mitosis", 1060.0),
+        KnownConcept("osmosis", 940.0),
+    ]
+
+
+def test_session_concept_carries_the_users_rating(db, recording, user):
+    add_question(db, recording.session_id, "glycolysis")
+    rate(db, user.user_id, "glycolysis", minutes_ago=1, elo=940.0)
+
+    assert known_concepts(db, recording.session_id) == [KnownConcept("glycolysis", 940.0)]
+
+
+def test_unrated_session_concept_is_kept_with_no_rating(db, recording):
+    # asked this session but not answered yet: kept (outer join), elo None, not dropped
+    add_question(db, recording.session_id, "photosynthesis")
+
+    assert known_concepts(db, recording.session_id) == [KnownConcept("photosynthesis", None)]
+
+
+def test_session_concept_ignores_another_users_rating(db, recording):
+    stranger = User(user_name="Other", email="other-rating@example.com")
+    db.add(stranger)
+    db.flush()
+    add_question(db, recording.session_id, "glycolysis")
+    rate(db, stranger.user_id, "glycolysis", minutes_ago=1, elo=1500.0)
+
+    assert known_concepts(db, recording.session_id) == [KnownConcept("glycolysis", None)]
 
 
 def test_other_users_ratings_and_other_sessions_are_ignored(db, recording):
