@@ -1,25 +1,20 @@
-// Question card: polls the server for pending questions, shows them one at a time,
-// posts answers to /questions/{id}/attempts and shows the grade + feedback.
-// Every server/LLM string goes in with textContent, never innerHTML.
+// Quiz data: polls the server for pending questions and posts answers. No DOM here: the UI
+// (app.js) gets questions through quiz.onPending and decides what to show; media.js hooks
+// onQuizShown / onQuizDone to pause and resume the video (#20). Uses API from renderer.js.
 
-const QUIZ_API = "http://127.0.0.1:8000"
 const POLL_MS = 5000
 const TAIL_MS = 30000   // keep polling this long after recording stops: questions land ~7 s after a trigger
 
 const quiz = {
     sessionId: null,
     timer: null,
-    stopAt: null,       // set when recording stops; polling ends at this time
-    open: false,
-    questions: [],
-    index: 0,
-    // #20 hooks, set by media.js: pause the video when a card opens, resume when it closes
+    stopAt: null,          // set when recording stops; polling ends at this time
+    open: false,           // a quiz is on screen (set by app.js); no polling until it closes
+    onPending: () => {},   // app.js: a quiz with unanswered questions is ready
+    // #20 hooks, set by media.js: pause the video when a quiz opens, resume when it closes
     onQuizShown: () => {},
     onQuizDone: () => {},
 }
-
-const el = (id) => document.getElementById(id)
-const card = el("quiz-card")
 
 function startQuizPolling(sessionId) {
     stopQuizTimer()
@@ -45,147 +40,28 @@ async function pollPending() {
     }
     if (quiz.open || !quiz.sessionId) return
     try {
-        const res = await fetch(`${QUIZ_API}/sessions/${quiz.sessionId}/questions/pending`)
+        const res = await fetch(`${API}/sessions/${quiz.sessionId}/questions/pending`)
         if (!res.ok) throw new Error(`pending failed: ${res.status}`)
         const pending = await res.json()
-        if (pending.questions.length > 0 && !quiz.open) showQuiz(pending)
+        if (pending.questions.length > 0 && !quiz.open) quiz.onPending(pending)
     } catch (err) {
         window.api.log(err.message)
     }
 }
 
-function showQuiz(pending) {
-    quiz.open = true
-    quiz.questions = pending.questions
-    quiz.index = 0
-    el("quiz-topic").textContent = pending.topic || "Quick check"
-    card.hidden = false
-    hideTitleBox()           // the title box is only offered before the first quiz
-    window.api.quizShown()   // main process turns click-through off and focuses the window
-    quiz.onQuizShown()
-    renderQuestion()
-}
-
-function renderQuestion() {
-    const q = quiz.questions[quiz.index]
-    el("quiz-progress").textContent = `${quiz.index + 1} / ${quiz.questions.length}`
-    el("quiz-prompt").textContent = q.prompt
-    el("quiz-ask").hidden = false
-    el("quiz-result").hidden = true
-
-    const options = el("quiz-options")
-    options.replaceChildren()
-    const text = el("quiz-text")
-    text.value = ""
-
-    if (q.question_type === "multiple_choice" && q.options) {
-        text.hidden = true
-        for (const option of q.options) {
-            const label = document.createElement("label")
-            const radio = document.createElement("input")
-            radio.type = "radio"
-            radio.name = "quiz-option"
-            radio.value = option      // grading matches the option text exactly
-            label.append(radio, " ", option)
-            options.append(label)
-        }
-    } else {
-        text.hidden = false
-        text.focus()
-    }
-    setButtonsDisabled(false)
-}
-
-function currentAnswer() {
-    const q = quiz.questions[quiz.index]
-    if (q.question_type === "multiple_choice") {
-        return document.querySelector('input[name="quiz-option"]:checked')?.value ?? ""
-    }
-    return el("quiz-text").value
-}
-
-async function submitAnswer(answer) {
-    const q = quiz.questions[quiz.index]
-    setButtonsDisabled(true)
+// grades and saves one answer ("" is a skip). Resolves the attempt, or null if the server
+// couldn't be reached: the question stays unanswered and comes back in a later quiz.
+async function postAttempt(questionId, answer) {
     try {
-        const res = await fetch(`${QUIZ_API}/questions/${q.question_id}/attempts`, {
+        const res = await fetch(`${API}/questions/${questionId}/attempts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_answer: answer }),
         })
         if (!res.ok) throw new Error(`attempt failed: ${res.status}`)
-        showResult(await res.json())
+        return await res.json()
     } catch (err) {
         window.api.log(err.message)
-        showResult(null)
+        return null
     }
 }
-
-function showResult(attempt) {
-    const verdict = el("quiz-verdict")
-    if (!attempt) {
-        verdict.textContent = "Couldn't reach the server. Try again later."
-        verdict.className = "verdict-ungraded"
-        el("quiz-feedback").textContent = ""
-    } else if (!attempt.graded) {
-        verdict.textContent = "Couldn't grade this right now. Your answer was saved."
-        verdict.className = "verdict-ungraded"
-        el("quiz-feedback").textContent = ""
-    } else {
-        const [label, cls] =
-            attempt.is_correct ? ["✓ Correct", "verdict-correct"]
-            : attempt.score > 0 ? ["◐ Partly right", "verdict-partial"]
-            : ["✗ Not quite", "verdict-incorrect"]
-        verdict.textContent = label
-        verdict.className = cls
-        el("quiz-feedback").textContent = attempt.feedback
-    }
-    showRating(attempt)
-    el("quiz-ask").hidden = true
-    el("quiz-result").hidden = false
-    el("quiz-next").textContent = quiz.index + 1 < quiz.questions.length ? "Next" : "Done"
-    el("quiz-next").disabled = false
-    el("quiz-next").focus()
-}
-
-// #25: "linear regression +21 → 1041", plus "· calibrating" for the first 3 answers on a concept.
-// Hidden when nothing was rated (ungraded answer, or a question with no concept).
-function showRating(attempt) {
-    const line = el("quiz-rating")
-    line.replaceChildren()
-    line.hidden = !attempt || attempt.elo_after == null
-    if (line.hidden) return
-
-    // difference of the rounded ratings, so the delta always matches the numbers shown
-    const before = Math.round(attempt.elo_before)
-    const after = Math.round(attempt.elo_after)
-    const delta = after - before
-
-    const change = document.createElement("span")
-    change.className = "rating-delta " + (delta > 0 ? "rating-up" : delta < 0 ? "rating-down" : "")
-    change.textContent = delta > 0 ? `+${delta}` : delta < 0 ? `−${-delta}` : "±0"
-
-    line.append(`${attempt.concept} `, change, ` → ${after}`)
-    if (attempt.calibrating) line.append(" · calibrating")
-}
-
-async function nextQuestion() {
-    quiz.index += 1
-    if (quiz.index < quiz.questions.length) {
-        renderQuestion()
-        return
-    }
-    card.hidden = true
-    quiz.open = false
-    await pollPending()                  // another quiz may already be waiting...
-    if (!quiz.open) quiz.onQuizDone()    // ...if so, stay paused through it
-}
-
-function setButtonsDisabled(disabled) {
-    el("quiz-submit").disabled = disabled
-    el("quiz-skip").disabled = disabled
-}
-
-el("quiz-submit").addEventListener("click", () => submitAnswer(currentAnswer()))
-el("quiz-skip").addEventListener("click", () => submitAnswer(""))   // graded as blank: shows the answer
-el("quiz-next").addEventListener("click", nextQuestion)

@@ -7,52 +7,13 @@
     </head>
 
     <body>
-        <div class="panel">
-            <div class="drag-handle">Frizz</div>
-            <button id="toggle-record" type="button">Start Recording</button>
+        <!-- app.js renders the notch island and its panel in here -->
+        <div id="root"></div>
 
-            <!-- optional video title: shown while recording until saved or the first quiz opens -->
-            <div id="title-box" hidden>
-                <input id="title-input" type="text" maxlength="300" placeholder="Video title (optional)">
-                <button id="title-save" type="button">Save</button>
-                <div id="title-status"></div>
-            </div>
-
-            <div>
-                Cmd + Shift + K to toggle click-through
-            </div>
-        </div>
-
-        <!-- question card: hidden until quiz.js has questions to show -->
-        <div id="quiz-card" class="panel card" hidden>
-            <div class="card-header">
-                <span id="quiz-topic"></span>
-                <span id="quiz-progress"></span>
-            </div>
-
-            <div id="quiz-ask">
-                <p id="quiz-prompt"></p>
-                <div id="quiz-options"></div>
-                <textarea id="quiz-text" rows="3" placeholder="Your answer"></textarea>
-                <div class="card-actions">
-                    <button id="quiz-skip" type="button">Skip</button>
-                    <button id="quiz-submit" type="button">Submit</button>
-                </div>
-            </div>
-
-            <div id="quiz-result" hidden>
-                <p id="quiz-verdict"></p>
-                <p id="quiz-rating" hidden></p>
-                <p id="quiz-feedback"></p>
-                <div class="card-actions">
-                    <button id="quiz-next" type="button">Next</button>
-                </div>
-            </div>
-        </div>
-
-        <script src="quiz.js"></script>
+        <!-- order matters: app.js uses what the others define -->
         <script src="renderer.js"></script>
+        <script src="quiz.js"></script>
         <script src="media.js"></script>
-        <script src="title.js"></script>
+        <script src="app.js"></script>
     </body>
 </html>

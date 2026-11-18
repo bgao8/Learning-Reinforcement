@@ -1,3 +1,5 @@
+// Capture and the session API. The UI (app.js) calls start() / stop() and reads
+// currentSessionId(); capture.onEnded tells it when the track died on its own.
 const API = "http://127.0.0.1:8000"
 
 async function createSession() {
@@ -20,6 +22,18 @@ async function endSession(sessionId) {
     })
     if (!res.ok) {
         throw new Error(`PATCH end failed: ${res.status}`)
+    }
+}
+
+// optional video title (#25): sent to question generation as LECTURE TITLE
+async function saveSessionTitle(sessionId, title) {
+    const res = await fetch(`${API}/sessions/${sessionId}`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title }),
+    })
+    if (!res.ok) {
+        throw new Error(`PATCH title failed: ${res.status}`)
     }
 }
 
@@ -75,29 +89,14 @@ function isAudible() {
 }
 
 
-const btn = document.getElementById("toggle-record")
 let recording = null
 
-btn.addEventListener("click", async () => {
-    // ignore clicks while starting/stopping so a double-click can't open two captures
-    btn.disabled = true
-    try {
-        if (recording) {
-            await stop()
-            window.api.log("Recording stopped")
-        } 
-        else {
-            await start()
-            window.api.log(recording ? "Recording started" : "Recording failed to start")
-        }
-    } finally {
-        btn.disabled = false
-        updateButton()
-    }
-})
+const capture = {
+    onEnded: () => {},   // set by app.js: capture stopped without the user asking
+}
 
-function updateButton() {
-    btn.textContent = recording ? "Stop Recording" : "Start Recording"
+function currentSessionId() {
+    return recording ? recording.sessionId : null
 }
 
 async function start() {
@@ -121,7 +120,7 @@ async function start() {
     track.onended = async () => {
         window.api.log("Capture ended unexpectedly")
         await stop()
-        updateButton()
+        capture.onEnded()
     }
 
     // creates a new context for the audio to live in, starts audio thread
@@ -164,7 +163,6 @@ async function start() {
         window.api.log(`Session started: ${rec.sessionId} sampleRate=${context.sampleRate}`)
         recording = { stream, track, context, source, node, sessionId: rec.sessionId, rec }
         startQuizPolling(rec.sessionId)
-        showTitleBox(rec.sessionId)
     } catch(err) {
         window.api.log(`Audio setup failed: ${err.message}`)
         track.stop()
@@ -184,7 +182,6 @@ async function stop() {
     await recording.context.close()
     recording = null
     endQuizPolling()
-    hideTitleBox()
 
     if (rec.pendingLen > 0) {
         queueUpload(rec, takePending(rec))
