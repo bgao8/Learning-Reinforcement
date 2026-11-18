@@ -164,10 +164,11 @@ KNOWN_RECENT = 30   # how many of the user's most recently rated concepts to off
 
 
 def known_concepts(db: DbSession, session_id: UUID) -> list[KnownConcept]:
-    """Concept names the generator should reuse: this session's first, then the user's recently rated ones.
+    """Concepts to offer the generator, each with the user's rating: this session's first, then the user's recently rated ones.
 
-    Reusing names keeps one concept from splitting into near-duplicates ("glycolysis" vs
-    "the glycolysis pathway"), which would leave each copy with too few attempts to rate.
+    Two jobs. Reusing names keeps one concept from splitting into near-duplicates ("glycolysis"
+    vs "the glycolysis pathway"), which would leave each copy with too few attempts to rate. The
+    rating (None if never answered) becomes a mastery tier the prompt adapts its questions to (#26).
     """
     this_session = db.execute(
         select(Concept.name, Mastery.elo)
@@ -188,7 +189,7 @@ def known_concepts(db: DbSession, session_id: UUID) -> list[KnownConcept]:
     ).all()
 
     merged = {}
-    # combine two lists
+    # dedupe by name, first one wins: this session's concepts stay in front
     for name, elo in [*this_session, *recent]:
         if name not in merged:
             merged[name] = KnownConcept(name, elo)
