@@ -17,10 +17,6 @@ const FALLBACK_NOTCH = { width: 185, height: 32 }   // 14" MacBook Pro, used for
 
 const HIT_TEST_MS = 33     // how often to check whether the cursor is over the island (~30/s)
 
-const MARGIN = 16          // gap between the overlay and the screen's top-right corner
-const MAX_SIZE = 2000      // sanity cap on sizes the renderer asks for
-
-let clickThrough = false
 let win = null
 let home = null       // where the window belongs: { x, y, width, height }, centered on the notch
 let geometry = null   // { notch, width, height }: sent to the renderer
@@ -57,24 +53,13 @@ function findNotch() {
     }
 }
 
-// sets click-through and tells the renderer, which dims the UI while it's on
-function setClickThrough(on, why) {
-    if (!win || win.isDestroyed()) { return }
-    clickThrough = on
-    win.setIgnoreMouseEvents(on)
-    win.webContents.send("click-through", on)
-    console.log(`[main] click-through ${on ? "ON" : "OFF"}${why ? ` (${why})` : ""}`)
-}
-
 function createWindow() {
-    const width = 400
-    const height = 120
-    const area = screen.getPrimaryDisplay().workArea
+    const place = findNotch()
+    geometry = place.geometry
+    console.log(`[main] island: ${geometry.notch ? `notch ${geometry.width}x${geometry.height}` : "no notch, floating"}`)
+    home = { x: Math.round(place.centerX - WIN_WIDTH / 2), y: place.top, width: WIN_WIDTH, height: WIN_HEIGHT }
     win = new BrowserWindow({
-        width,
-        height,
-        x: area.x + area.width - width - MARGIN,
-        y: area.y + MARGIN,
+        ...home,
         title: "Frizz",
         webPreferences: {
             preload: path.join(__dirname, "preload.js")
@@ -88,8 +73,9 @@ function createWindow() {
     })
     win.setAlwaysOnTop(true, "screen-saver")   // above the menu bar and fullscreen apps
     win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true })
-    // a reload resets the renderer's state; tell it the real click-through setting
-    win.webContents.on("did-finish-load", () => win.webContents.send("click-through", clickThrough))
+    // clicks pass through until the cursor is over the island (watchCursor)
+    catching = false
+    win.setIgnoreMouseEvents(true, { forward: true })
     win.loadFile("index.html")
     watchCursor()
     return win
@@ -142,34 +128,23 @@ app.whenReady().then(() => {
     const trusted = systemPreferences.isTrustedAccessibilityClient(true)
     console.log(`[main] accessibility ${trusted ? "granted" : "missing (auto-pause disabled until granted and relaunched)"}`)
 
-    const ok = globalShortcut.register("CommandOrControl+Shift+K", () => {
-        setClickThrough(!clickThrough)
-    })
-
-    if (!ok) { console.error("[main] hotkey already taken by another app") }
+    shortcut("CommandOrControl+Shift+K", "panel")   // open the panel / back to where it was
 
     ipcMain.handle("log", (_e, msg) => {
         console.log(`[renderer] ${msg}`)
     })
 
-    // a question card opened: it must be clickable and accept typing
-    ipcMain.handle("quiz-shown", () => {
-        if (!win || win.isDestroyed()) { return }
-        if (clickThrough) { setClickThrough(false, "quiz shown") }
-        win.focus()
+    ipcMain.handle("geometry", () => geometry)
+
+    // the panel opened (a quiz, or the shortcut): take keyboard focus so it can be typed in
+    ipcMain.handle("focus", () => {
+        if (win && !win.isDestroyed()) { win.focus() }
     })
 
-    // #59: the renderer reports its UI's size and the window shrinks to fit, so the transparent
-    // area around the pill/panel never blocks clicks on the video. The right edge stays put, so
-    // expanding the pill into the panel grows the window leftward and down.
-    ipcMain.handle("resize", (_e, width, height) => {
-        if (!win || win.isDestroyed()) { return }
-        if (!Number.isFinite(width) || !Number.isFinite(height)) { return }
-        const w = Math.min(MAX_SIZE, Math.max(1, Math.round(width)))
-        const h = Math.min(MAX_SIZE, Math.max(1, Math.round(height)))
-        const b = win.getBounds()
-        if (b.width === w && b.height === h) { return }
-        win.setBounds({ x: b.x + b.width - w, y: b.y, width: w, height: h })
+    // the island's clickable area changed (mode, panel height, hover bulge): watchCursor uses it
+    ipcMain.on("island-rect", (_e, r) => {
+        const ok = r && ["x", "y", "width", "height"].every((k) => Number.isFinite(r[k]))
+        islandRect = ok ? { x: r.x, y: r.y, width: r.width, height: r.height } : null
     })
 
     // press ⏯ once (#20). Never throws: resolves { ok } or { ok: false, reason } so the
