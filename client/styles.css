@@ -1,4 +1,4 @@
-/* Frizz overlay styles (#59).
+/* Frizz overlay styles: the notch island and its panel.
    Buttons follow one rule: primary = blue, secondary = white.
    Results follow one rule: right = blue, partly = yellow, missed = orange, each with its own icon. */
 
@@ -7,13 +7,21 @@
     --accent-text: #7DB4FF;     /* blue for text/marks on dark glass */
     --partial-text: #F2D46B;    /* yellow for "partly right", paired with the half-circle icon */
     --warn-text: #FFB067;       /* orange for "missed", paired with the ✕ icon */
-    --glass: rgba(22, 22, 26, 0.88);
     --line: rgba(255, 255, 255, 0.08);
     --text: #F4F4F5;
     --text-2: #D4D4D8;
     --muted: #A1A1AA;
-    --idle-opacity: 0.7;        /* collapsed pill opacity when not hovered */
-    --edge: 10px;               /* transparent margin around the UI for its shadow */
+
+    /* the island. --notch-w/--notch-h are set from the real notch at startup (app.js) */
+    --notch-w: 185px;
+    --notch-h: 32px;
+    --wing: 116px;              /* how far each wing reaches past the notch */
+    --panel-w: 420px;           /* width of the open panel: at least the island's, so opening never narrows it */
+    --ear: 8px;                 /* the curves where the island meets the top of the screen */
+    /* a spring: fast out, overshoots ~7%, settles. Generated as a linear() curve */
+    --spring: linear(0, 0.034 1.4%, 0.13 2.9%, 0.27 4.6%, 0.59 8.5%, 0.79 11.6%, 0.93 15%,
+        1.02 18.8%, 1.06 22.5%, 1.07 26%, 1.06 30%, 1.03 35.5%, 1.005 42%, 0.995 50%, 0.996 60%, 1);
+    --morph: .55s var(--spring);
 }
 
 * { box-sizing: border-box; }
@@ -28,23 +36,18 @@ body {
 button, input { font: inherit; }
 button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
 
-#root {
-    display: inline-flex;
-    flex-direction: column;
-    align-items: flex-end;
-    padding: var(--edge);
-}
-button, input { font: inherit; }
-button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
-
 #root { display: flex; justify-content: center; }
 
-.glass {
-    background: var(--glass);
-    backdrop-filter: blur(22px) saturate(1.4);
-    -webkit-backdrop-filter: blur(22px) saturate(1.4);
-    border: 1px solid rgba(255, 255, 255, 0.10);
-    box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
+/* ---------- island ----------
+   One black shape that grows out of the notch. The mode sets its target size and CSS springs
+   to it: hidden = the notch itself, island = wings out, expanded = wings + the panel below. */
+.island {
+    position: relative;
+    width: var(--w); height: var(--h);
+    background: #000;
+    border-radius: 0 0 var(--r) var(--r);
+    cursor: pointer;
+    transition: width var(--morph), height var(--morph), border-radius var(--morph);
 }
 .island.mode-hidden   { --w: var(--notch-w); --h: var(--notch-h); --r: 10px; }
 .island.mode-island   { --w: calc(var(--notch-w) + 2 * var(--wing)); --h: var(--notch-h); --r: 14px; }
@@ -52,40 +55,78 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 /* hidden: a slight bulge on hover says the notch can be clicked */
 .island.mode-hidden:hover { --w: calc(var(--notch-w) + 16px); --h: calc(var(--notch-h) + 4px); }
 
-/* Electron: lets the user drag the overlay by its empty areas */
-.drag { -webkit-app-region: drag; }
-.drag button, .drag textarea, .drag input { -webkit-app-region: no-drag; }
-
-/* ---------- collapsed pill ---------- */
-.pill {
-    display: flex; align-items: center; gap: 4px;
-    height: 44px; padding: 0 6px 0 2px; border-radius: 22px;
-    opacity: var(--idle-opacity);
-    transition: opacity .2s ease;
+/* ears: concave curves joining the island's sides to the top of the screen */
+.island::before, .island::after {
+    content: ""; position: absolute; top: 0; width: var(--ear); height: var(--ear);
 }
-.pill:hover, .pill:focus-within, .pill.ready { opacity: 1; }
-.ct .pill, .ct .panel { opacity: 0.45 !important; }
+.island::before { left: calc(-1 * var(--ear)); background: radial-gradient(circle at 0 100%, transparent calc(var(--ear) - .5px), #000 var(--ear)); }
+.island::after  { right: calc(-1 * var(--ear)); background: radial-gradient(circle at 100% 100%, transparent calc(var(--ear) - .5px), #000 var(--ear)); }
 
-/* the pill's only drag handle (Electron drag regions don't receive clicks) */
-.grip {
-    -webkit-app-region: drag;
-    display: flex; align-items: center; justify-content: center;
-    width: 16px; height: 100%;
-    color: var(--muted); cursor: grab;
+/* an invisible area that counts as the island (hover and click). Collapsed, a strip under it, so
+   the notch can be clicked from just below. Hidden, it also covers where the wings would be:
+   the notch alone is a small target, and macOS doesn't show the cursor while it's on the notch */
+.catch { position: absolute; top: 100%; left: 0; right: 0; height: 10px; }
+body:not(.no-notch) .island.mode-hidden .catch {
+    top: 0; left: 50%; right: auto; transform: translateX(-50%);
+    width: calc(var(--notch-w) + 2 * var(--wing)); height: calc(100% + 10px);
 }
-.grip:hover { color: var(--text-2); }
+.island.mode-expanded .catch { display: none; }
 
-.pill-main {
-    display: flex; align-items: center; gap: 8px;
-    height: 32px; padding: 0 6px 0 4px; min-width: 0;
-    border: 0; background: transparent; color: inherit; cursor: pointer;
+/* the contents are clipped to the shape as it animates */
+.clip { position: absolute; inset: 0; overflow: hidden; border-radius: inherit; }
+
+/* wings: left | the notch | right, always as tall as the notch */
+.band {
+    position: absolute; top: 0; left: 0; right: 0; height: var(--notch-h);
+    display: grid; grid-template-columns: 1fr var(--notch-w) 1fr;
 }
+.wing {
+    display: flex; align-items: center; gap: 6px; min-width: 0; overflow: hidden;
+    opacity: 1; transition: opacity .25s ease .12s;   /* fade in once the shape has opened */
+}
+.wing.left  { justify-content: flex-start; padding-left: 7px; }
+.wing.right { justify-content: flex-end; padding-right: 16px; }
+/* open: line the wings up with the panel's content below */
+.island.mode-expanded .wing.left  { padding-left: 14px; }
+.island.mode-expanded .wing.right { padding-right: 18px; }
+.island.mode-hidden .wing { opacity: 0; pointer-events: none; transition: opacity .1s ease; }
+.wing-text { font-size: 12px; font-weight: 500; color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.wing-text.accent { color: var(--accent-text); font-weight: 600; }
+.wing-text.muted  { color: var(--muted); }
+/* play / pause: start or stop listening without opening the panel. Blue in both states, so the
+   island stands out on a black screen (a full-screen video, the dark-mode menu bar) */
+.wing-btn {
+    flex: 0 0 auto; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 11px; cursor: pointer;
+    display: inline-flex; align-items: center; justify-content: center;
+    background: rgba(125, 180, 255, 0.22); color: var(--accent-text);
+    transition: background .15s ease, transform .15s ease;
+}
+.wing-btn:hover { background: rgba(125, 180, 255, 0.34); transform: scale(1.08); }
+.wing-btn:disabled { opacity: .45; cursor: default; transform: none; }
+.wing-btn svg { margin-left: 1px; }       /* the play triangle looks centered a hair right */
+.wing-btn.on svg { margin-left: 0; }
+
+/* the panel under the wings: fixed width, centered, so its height can be measured in any mode */
+.content {
+    position: absolute; top: var(--notch-h); left: 50%; width: var(--panel-w);
+    transform: translateX(-50%);
+    opacity: 0; transition: opacity .15s ease;
+}
+.island.mode-expanded .content { opacity: 1; transition: opacity .25s ease .15s; }
+
+/* a quiz is waiting behind the collapsed island: a soft blue glow until it's opened */
+.island.ready { box-shadow: 0 0 0 1px rgba(125, 180, 255, .35), 0 4px 18px rgba(11, 107, 242, .35); }
+
+/* no notch (external display): a floating capsule under the menu bar; hidden shrinks it to a
+   small dim bar that can still be clicked */
+.no-notch .island { margin-top: 8px; border-radius: var(--r); --notch-w: 0px; }
+.no-notch .island.mode-island { --r: 16px; }
+.no-notch .island.mode-hidden { --w: 44px; --h: 8px; --r: 4px; opacity: .55; }
+.no-notch .island.mode-hidden:hover { --w: 56px; --h: 10px; opacity: 1; }
+.no-notch .island::before, .no-notch .island::after { display: none; }
+.no-notch .band { grid-template-columns: 1fr 8px 1fr; }
+
 .brand { font-size: 13px; font-weight: 600; letter-spacing: -0.01em; }
-.pill-topic {
-    font-size: 13px; font-weight: 500; color: #E4E4E7;
-    max-width: 150px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
-}
-.pill-topic.paused { color: var(--muted); }
 
 /* ---------- buttons ---------- */
 .btn {
@@ -126,27 +167,22 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
 .wave.live i:nth-child(3) { animation-duration: 1.2s; animation-delay: -.5s; }
 .wave.live i:nth-child(4) { animation-duration: 1s;   animation-delay: -.3s; }
 .wave.live i:nth-child(5) { animation-duration: 1.3s; animation-delay: -.7s; }
-.wave.off i { height: 3px; background: #71717A; }
+.wave.off i { height: 3px; }
 @keyframes bar { 0%, 100% { height: 4px; } 30% { height: 14px; } 60% { height: 7px; } }
 
 /* ---------- expanded panel ---------- */
-.panel { width: 360px; border-radius: 16px; overflow: hidden; transition: opacity .2s ease; }
+.panel { width: 100%; }
 .head {
     display: flex; align-items: center; gap: 8px;
-    padding: 10px 10px 10px 14px; border-bottom: 1px solid var(--line);
+    padding: 8px 12px 10px 16px; border-bottom: 1px solid var(--line);
 }
 .head .brand { font-size: 14px; }
 .spacer { flex-grow: 1; }
-.status {
-    display: inline-flex; align-items: center; gap: 6px; height: 22px; padding: 0 8px;
-    border-radius: 11px; background: rgba(255, 255, 255, 0.06);
-    font-size: 11px; font-weight: 500; color: var(--text-2);
-}
 .dot { width: 8px; height: 8px; border-radius: 4px; background: #71717A; }
 .dot.live { background: var(--accent-text); animation: pulse 1.6s ease-in-out infinite; }
 @keyframes pulse { 50% { opacity: .35; } }
 
-.body { padding: 14px; display: flex; flex-direction: column; gap: 14px; }
+.body { padding: 14px 16px; display: flex; flex-direction: column; gap: 14px; }
 .eyebrow { font-size: 11px; font-weight: 600; letter-spacing: .06em; text-transform: uppercase; color: var(--muted); }
 .title { font-size: 17px; font-weight: 600; letter-spacing: -0.01em; line-height: 23px; overflow-wrap: anywhere; }
 .lead  { font-size: 15px; font-weight: 600; line-height: 21px; }
@@ -261,7 +297,8 @@ textarea:disabled { opacity: .75; }
 .res-icon.neutral { background: rgba(255,255,255,.14); color: var(--text-2); }
 
 /* footer */
-.foot { display: flex; align-items: center; gap: 6px; padding: 9px 14px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+.foot { display: flex; align-items: center; justify-content: space-between; padding: 10px 16px 12px; border-top: 1px solid var(--line); font-size: 11px; color: var(--muted); }
+.foot .keys { display: inline-flex; align-items: center; gap: 3px; }
 kbd {
     font-family: inherit; font-size: 10px; min-width: 18px; height: 18px; padding: 0 4px;
     display: inline-flex; align-items: center; justify-content: center;

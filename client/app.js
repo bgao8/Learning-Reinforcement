@@ -1,15 +1,24 @@
-// Frizz overlay UI (#59). One state machine renders either the collapsed pill or the expanded
-// panel (session, quiz, results).
+// Frizz overlay UI. One black "island" sits on the notch and grows out of it, Dynamic Island
+// style, in one of three modes:
+//   hidden    exactly the notch's size, so it disappears into it
+//   island    wings out on both sides of the notch: status on the left, waveform on the right
+//   expanded  the panel drops down from the wings: session, quiz, results (#59's screens)
+// A click on the island (or, when open, its top row) steps through hidden -> island -> expanded
+// -> hidden. Cmd+Shift+K always opens the panel, and pressing it again returns to the mode it
+// was opened from; Escape, the minimize button and finishing a quiz do the same. A ready quiz
+// always opens the panel.
 //
 // Real mode (in Electron): capture and the session API come from renderer.js, quiz data from
 // quiz.js, pause/resume from media.js. Demo mode (a plain browser, or ?demo / ?preset=<name>)
 // runs on built-in data, so every screen can be designed and screenshotted without the audio
-// pipeline or the server. Presets: idle, empty, listening, title, session, stopped, ended,
-// waiting, question, answered, short, graded, done. Add &ct=1 to see the click-through style.
+// pipeline or the server. Presets: hidden, idle, empty, listening, title, session, stopped,
+// ended, waiting, question, answered, short, graded, done. Add &nonotch=1 for the floating
+// capsule used on screens without a notch.
 //
-// Rendering rebuilds #root from template strings in render(), the only place innerHTML is
-// used. Every string from the server, the model or the user goes through esc(); the only raw
-// markup is ICON and the templates themselves.
+// The island element stays in the page and only its contents are rebuilt, so CSS can animate
+// its size between modes. render() is the only place innerHTML is used. Every string from the
+// server, the model or the user goes through esc(); the only raw markup is ICON and the
+// templates themselves.
 
 (function () {
     "use strict"
@@ -89,7 +98,8 @@
     // ------------------------------------------------------------ state
 
     const BASE = {
-        expanded: false,
+        mode: "island",       // hidden | island | expanded
+        back: "island",       // the mode the panel was opened from, to return to when it closes
         rec: false,
         busy: false,          // starting or stopping: the record buttons are disabled
         error: "",
@@ -109,7 +119,6 @@
         checked: false,       // the current question has a result
         result: null,         // its attempt; null after a check means the server couldn't be reached
         results: [],          // [{ question, attempt, answer }] for the questions answered so far
-        ct: false,            // click-through is on
     }
 
     const params = new URLSearchParams(location.search)
@@ -144,29 +153,39 @@
         })
     }
 
+    const OPEN = { mode: "expanded" }
     const PRESETS = {
+        hidden: () => ({ mode: "hidden", rec: true }),
         idle: () => ({}),
-        empty: () => ({ expanded: true }),
+        empty: () => OPEN,
         listening: () => ({ rec: true }),
-        title: () => ({ expanded: true, rec: true, title: "Stanford CS229: Lecture 4" }),
-        session: () => ({ expanded: true, rec: true, titleSaved: true, title: "Stanford CS229: Lecture 4", topics: T(2) }),
+        title: () => ({ mode: "expanded", rec: true, title: "Stanford CS229: Lecture 4" }),
+        session: () => ({ mode: "expanded", rec: true, titleSaved: true, title: "Stanford CS229: Lecture 4", topics: T(2) }),
         stopped: () => ({ topics: T(3) }),
-        ended: () => ({ expanded: true, titleSaved: true, title: "Stanford CS229: Lecture 4", topics: T(3) }),
+        ended: () => ({ mode: "expanded", titleSaved: true, title: "Stanford CS229: Lecture 4", topics: T(3) }),
         waiting: () => Object.assign({ rec: true, topics: T(3) }, quizAt(1, A.slice(0, 1))),
-        question: () => Object.assign({ expanded: true, rec: true, topics: T(3) }, quizAt(0, [])),
-        answered: () => Object.assign({ expanded: true, rec: true, topics: T(3) }, answeredAt(0, A.slice(0, 1))),
-        short: () => Object.assign({ expanded: true, rec: true, topics: T(3) }, quizAt(2, A.slice(0, 2)), { text: A[2] }),
-        graded: () => Object.assign({ expanded: true, rec: true, topics: T(3) }, answeredAt(2, A)),
-        done: () => Object.assign({ expanded: true, rec: true, topics: T(3) }, answeredAt(2, A), { view: "done" }),
+        question: () => Object.assign({ mode: "expanded", rec: true, topics: T(3) }, quizAt(0, [])),
+        answered: () => Object.assign({ mode: "expanded", rec: true, topics: T(3) }, answeredAt(0, A.slice(0, 1))),
+        short: () => Object.assign({ mode: "expanded", rec: true, topics: T(3) }, quizAt(2, A.slice(0, 2)), { text: A[2] }),
+        graded: () => Object.assign({ mode: "expanded", rec: true, topics: T(3) }, answeredAt(2, A)),
+        done: () => Object.assign({ mode: "expanded", rec: true, topics: T(3) }, answeredAt(2, A), { view: "done" }),
     }
 
     const preset = PRESETS[params.get("preset")]
     let S = Object.assign({}, BASE, preset ? preset() : {})
-    if (params.get("ct") === "1") S.ct = true
     let sessionStart = Date.now()
     let timers = []
 
+    // the island: built once and kept, so its size can animate; render() fills band and content
     const root = document.getElementById("root")
+    root.innerHTML = `<div class="island" id="island">
+        <div class="clip"><div class="band" id="band"></div><div class="content" id="content"></div></div>
+        <div class="catch" id="catch"></div>
+    </div>`
+    const island = document.getElementById("island")
+    const band = document.getElementById("band")
+    const content = document.getElementById("content")
+    const catcher = document.getElementById("catch")
 
     function set(patch) {
         S = Object.assign({}, S, patch)
@@ -186,6 +205,8 @@
     const ICON = {
         mic: svg(14, '<path d="M12 3a3 3 0 0 0-3 3v6a3 3 0 0 0 6 0V6a3 3 0 0 0-3-3z"/><path d="M19 11a7 7 0 0 1-14 0"/><path d="M12 18v3"/>', stroke(2)),
         stop: svg(12, '<rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>'),
+        play: svg(10, '<path d="M8 5.5v13a1 1 0 0 0 1.5.86l10.5-6.5a1 1 0 0 0 0-1.72L9.5 4.64A1 1 0 0 0 8 5.5z" fill="currentColor"/>'),
+        pause: svg(10, '<rect x="6" y="5" width="4" height="14" rx="1.2" fill="currentColor"/><rect x="14" y="5" width="4" height="14" rx="1.2" fill="currentColor"/>'),
         down: svg(14, '<path d="M6 9l6 6 6-6"/>', stroke(2.2)),
         up: svg(14, '<path d="M6 15l6-6 6 6"/>', stroke(2.2)),
         arrow: svg(14, '<path d="M5 12h14M13 6l6 6-6 6"/>', stroke(2.2)),
@@ -193,7 +214,6 @@
         x: (n) => svg(n, '<path d="M7 7l10 10M17 7L7 17"/>', stroke(3)),
         half: (n) => svg(n, '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M12 4.5a7.5 7.5 0 0 0 0 15z" fill="currentColor"/>'),
         dash: (n) => svg(n, '<path d="M7 12h10"/>', stroke(3)),
-        grip: svg(14, [9, 15].flatMap((x) => [6, 12, 18].map((y) => `<circle cx="${x}" cy="${y}" r="1.7" fill="currentColor"/>`)).join("")),
         logo: (n) => `<svg width="${n}" height="${n}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="var(--accent)"/><path d="M5 10.5c1.5-3 3-3 4.5 0s3 3 4.5 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>`,
     }
     const wave = (live) => `<span class="wave ${live ? "live" : "off"}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>`
@@ -241,47 +261,31 @@
 
     // ------------------------------------------------------------ views
 
-    function recButton(cls) {
-        const label = S.rec ? "Stop listening" : "Start listening"
-        return `<button type="button" class="${cls}" data-action="toggleRec" aria-label="${label}" title="${label}" ${S.busy ? "disabled" : ""}>${S.rec ? ICON.stop : ICON.mic}</button>`
-    }
-
-    function pillView() {
-        const idle = !S.rec && !S.topics.length && !inQuiz()
-        let main
-        if (idle) main = `${ICON.logo(22)}<span class="brand">Frizz</span>`
-        else if (inQuiz()) main = `${wave(false)}<span class="pill-topic">${esc(S.topic)}</span>`
-        else if (S.rec) main = `${wave(true)}<span class="pill-topic">Listening</span>`
-        else main = `${wave(false)}<span class="pill-topic paused">Stopped · ${esc(plural(S.topics.length, "quiz", "quizzes"))}</span>`
-
-        let right
-        if (idle) {
-            right = `<button type="button" class="btn btn-blue btn-sm" data-action="toggleRec" ${S.busy ? "disabled" : ""}>${ICON.mic}Start listening</button>`
-        } else if (inQuiz()) {
-            right = S.view === "done"
-                ? `<button type="button" class="btn btn-blue btn-sm" data-action="expand">Results</button>`
-                : `<button type="button" class="btn btn-blue btn-sm" data-action="expand" aria-label="Back to the quiz, ${plural(remaining(), "question")} left">Quiz <span class="count">${remaining()}</span></button>`
+    // the wings on either side of the notch: status on the left, waveform on the right
+    function bandView() {
+        let text
+        if (inQuiz() && S.mode !== "expanded") {
+            text = S.view === "done"
+                ? `<span class="wing-text accent">Results ready</span>`
+                : `<span class="wing-text accent">Quiz · ${remaining()} left</span>`
+        } else if (S.rec) {
+            text = `<span class="wing-text">Listening</span>`
+        } else if (S.topics.length) {
+            text = `<span class="wing-text muted">Stopped</span>`
         } else {
-            right = recButton("icon-btn round")
+            text = `<span class="wing-text">Frizz</span>`
         }
-        if (!idle) right += `<button type="button" class="icon-btn ghost" data-action="expand" aria-label="Expand">${ICON.down}</button>`
-
-        // the grip is the pill's only drag area: in Electron a drag region swallows clicks, so the
-        // rest of the pill stays buttons
-        return `<div class="pill glass ${inQuiz() ? "ready" : ""}">
-            <div class="grip" title="Drag to move">${ICON.grip}</div>
-            <button type="button" class="pill-main" data-action="expand" aria-label="Open Frizz panel">${main}</button>
-            ${right}
-        </div>`
+        // play / pause starts or stops listening; its own action, so it doesn't step the island
+        const label = S.rec ? "Stop listening" : "Start listening"
+        const toggle = `<button type="button" class="wing-btn ${S.rec ? "on" : ""}" data-action="toggleRec" aria-label="${label}" title="${label}" ${S.busy ? "disabled" : ""}>${S.rec ? ICON.pause : ICON.play}</button>`
+        return `<div class="wing left">${toggle}${text}</div><div class="notch-gap"></div><div class="wing right">${wave(S.rec)}</div>`
     }
 
+    // the panel's top row; the wings above it show the status and the play/pause toggle
     function headView() {
-        const status = S.rec ? "Listening" : S.topics.length ? "Stopped" : "Off"
-        return `<div class="head drag">
+        return `<div class="head">
             ${ICON.logo(20)}<span class="brand">Frizz</span>
-            <span class="status"><span class="dot ${S.rec ? "live" : ""}"></span>${status}</span>
             <span class="spacer"></span>
-            ${recButton("icon-btn")}
             <button type="button" class="icon-btn" data-action="collapse" aria-label="Minimize" title="Minimize">${ICON.up}</button>
         </div>`
     }
@@ -324,8 +328,11 @@
         ).join("")
         const topics = S.topics.length ? `<div class="card"><div class="eyebrow">Topics this session</div>${rows}</div>` : ""
 
+        // start and stop share the bottom spot; stop is secondary (white) so it doesn't compete
+        // with the quiz, and is here because the wing's pause button is small and far up
         const cta = S.rec
-            ? `<div class="center-note">Questions appear here as topics wrap up.</div>`
+            ? `<div class="center-note">Questions appear here as topics wrap up.</div>
+               <button type="button" class="btn btn-white btn-lg" data-action="toggleRec" ${S.busy ? "disabled" : ""}>${ICON.stop}Stop listening</button>`
             : `<button type="button" class="btn btn-blue btn-lg" data-action="toggleRec" ${S.busy ? "disabled" : ""}>${ICON.mic}Start a new session</button>`
 
         return `<div class="body">
@@ -434,11 +441,13 @@
 
     function panelView() {
         const body = S.view === "quiz" ? quizView() : S.view === "done" ? doneView() : sessionView()
-        return `<section class="panel glass" aria-label="Frizz">
+        return `<section class="panel" aria-label="Frizz">
             ${headView()}
             ${body}
-            <div class="foot"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>K</kbd>
-                <span>${S.ct ? "Click-through on: clicks pass to the apps below" : "to toggle click-through"}</span></div>
+            <div class="foot">
+                <span class="keys"><kbd>⌘</kbd><kbd>⇧</kbd><kbd>K</kbd> back</span>
+                <span>Click the bar above to hide</span>
+            </div>
         </section>`
     }
 
@@ -447,21 +456,72 @@
     function render() {
         const active = document.activeElement
         const keep = active && KEEP_FOCUS.includes(active.id) ? active.id : null
-        document.body.classList.toggle("ct", S.ct)
-        root.innerHTML = S.expanded ? panelView() : pillView()
+        const open = S.mode === "expanded"
+
+        island.className = `island mode-${S.mode}${inQuiz() && !open ? " ready" : ""}`
+        // collapsed, a click anywhere on the island steps the mode; open, only the top row does,
+        // so clicks in the panel stay with its buttons
+        if (open) island.removeAttribute("data-action")
+        else island.dataset.action = "step"
+        band.dataset.action = "step"
+        band.innerHTML = bandView()
+        // the panel stays rendered while collapsed, so it's still there as the island shrinks
+        // over it; inert keeps it out of clicks and keyboard focus
+        content.innerHTML = panelView()
+        content.inert = !open
+        fitIsland()
+        reportIsland()   // the catch strip comes and goes with the mode
 
         // a rebuild drops focus: give it back to the field being typed in, or to the next step
-        const field = keep && document.getElementById(keep)
+        const field = keep && open && document.getElementById(keep)
         if (field && !field.disabled) {
             field.focus()
             field.setSelectionRange(field.value.length, field.value.length)
-        } else if (S.expanded && S.view === "quiz") {
+        } else if (open && S.view === "quiz") {
             const target = S.checked ? root.querySelector('[data-action="next"]') : document.getElementById("answer")
             if (target && !target.disabled) target.focus()
         }
     }
 
+    // open, the island is as tall as the wings plus the panel; CSS animates the change
+    function fitIsland() {
+        const open = S.mode === "expanded"
+        island.style.setProperty("--panel-h", open ? `${content.offsetHeight}px` : "0px")
+    }
+    new ResizeObserver(fitIsland).observe(content)
+
+    // Electron: tell main where the island is, so it catches clicks only there. The area is the
+    // island plus its invisible .catch area (styles.css): collapsed, a strip below the shape, so
+    // the notch can be clicked without pushing the cursor to the top edge (which brings down a
+    // hidden menu bar); hidden, also where the wings would be, since the notch alone is tiny.
+    function reportIsland() {
+        if (!window.api) return
+        const a = island.getBoundingClientRect()
+        const c = catcher.getBoundingClientRect()   // zero-size when open (display: none)
+        const box = c.width === 0 ? a : {
+            left: Math.min(a.left, c.left), top: Math.min(a.top, c.top),
+            right: Math.max(a.right, c.right), bottom: Math.max(a.bottom, c.bottom),
+        }
+        window.api.islandRect({ x: box.left, y: box.top, width: box.right - box.left, height: box.bottom - box.top })
+    }
+    // fires on every size change, including each frame of an animation and the hover bulge
+    new ResizeObserver(reportIsland).observe(island)
+    new ResizeObserver(reportIsland).observe(catcher)
+
     // ------------------------------------------------------------ actions
+
+    // the state change for a new mode; opening the panel remembers where it was opened from
+    function modePatch(mode) {
+        return mode === "expanded" && S.mode !== "expanded" ? { mode, back: S.mode } : { mode }
+    }
+
+    function goTo(mode) {
+        set(modePatch(mode))
+        if (mode === "expanded" && !DEMO) window.api.focus()   // so the panel can be typed in
+    }
+
+    const NEXT = { hidden: "island", island: "expanded", expanded: "hidden" }
+    const closePanel = () => set({ mode: S.back })
 
     function clearTimers() {
         timers.forEach(clearTimeout)
@@ -474,7 +534,7 @@
 
     async function startListening() {
         // a new session: forget the last one's topics and title, and open the panel for the title box
-        set({ busy: true, error: "", expanded: true, topics: [], title: "", titleSaved: false, titleError: "" })
+        set(Object.assign(modePatch("expanded"), { busy: true, error: "", topics: [], title: "", titleSaved: false, titleError: "" }))
         if (DEMO) {
             sessionStart = Date.now()
             set({ busy: false, rec: true })
@@ -511,14 +571,14 @@
     function openQuiz(topic, questions) {
         quiz.open = true
         const name = topic || "Quick check"
-        set({
-            expanded: true, view: "quiz", topic: name, quiz: questions,
+        set(Object.assign(modePatch("expanded"), {
+            view: "quiz", topic: name, quiz: questions,
             topics: S.topics.concat([{ name, time: fmtElapsed(Date.now() - sessionStart), score: null }]),
             quizRow: S.topics.length,
             q: 0, picked: null, text: "", grading: false, checked: false, result: null, results: [],
-        })
+        }))
         if (!DEMO) {
-            window.api.quizShown()   // main turns click-through off and focuses the window
+            window.api.focus()       // so the answer can be typed right away
             quiz.onQuizShown()       // media.js pauses the video
         }
     }
@@ -549,10 +609,10 @@
         set({ view: "done", topics })
     }
 
-    // results screen → back to the video
+    // results screen → back to the video, and to the mode the quiz interrupted
     async function finish() {
         quiz.open = false
-        set({ view: "session", expanded: false, quiz: [], results: [], checked: false, result: null, picked: null, text: "" })
+        set({ view: "session", mode: S.back, quiz: [], results: [], checked: false, result: null, picked: null, text: "" })
         if (DEMO) {
             if (S.rec) later(8000, () => openQuiz(DEMO_QUIZ.topic, DEMO_QUIZ.questions))
             return
@@ -576,9 +636,16 @@
         }
     }
 
+    // Cmd+Shift+K (from main.js): open the panel, or close it back to where it was opened from
+    function onShortcut(name) {
+        if (name !== "panel") return
+        if (S.mode === "expanded") closePanel()
+        else goTo("expanded")
+    }
+
     const ACTIONS = {
-        expand: () => set({ expanded: true }),
-        collapse: () => set({ expanded: false }),
+        step: () => goTo(NEXT[S.mode]),
+        collapse: closePanel,
         toggleRec,
         saveTitle,
         pick: (el) => {
@@ -617,20 +684,33 @@
             ACTIONS.checkShort()
         } else if (e.target.id === "title-input" && e.key === "Enter") {
             saveTitle()
-        } else if (e.key === "Escape" && S.expanded) {
-            set({ expanded: false })
+        } else if (e.key === "Escape" && S.mode === "expanded") {
+            closePanel()
         }
     })
 
     // ------------------------------------------------------------ Electron wiring
 
+    // the notch's size sets the island's (CSS variables); without one, it floats as a capsule
+    function useGeometry(g) {
+        const css = document.documentElement.style
+        css.setProperty("--notch-w", `${g.width}px`)
+        css.setProperty("--notch-h", `${g.height}px`)
+        document.body.classList.toggle("no-notch", !g.notch)
+    }
+
     if (window.api) {
-        // keep the window exactly the size of the UI (main.js keeps its right edge in place)
-        new ResizeObserver(() => {
-            const r = root.getBoundingClientRect()
-            window.api.resize(Math.ceil(r.width), Math.ceil(r.height))
-        }).observe(root)
-        window.api.onClickThrough((on) => set({ ct: !!on }))
+        window.api.geometry().then((g) => { if (g) useGeometry(g) })
+        window.api.onShortcut(onShortcut)
+    } else {
+        useGeometry({ notch: params.get("nonotch") !== "1", width: 185, height: 32 })
+        // demo: the same shortcuts, from the page itself
+        document.addEventListener("keydown", (e) => {
+            if (!e.metaKey || !e.shiftKey) return
+            if (e.code !== "KeyK") return
+            e.preventDefault()
+            onShortcut("panel")
+        })
     }
 
     if (!DEMO) {
