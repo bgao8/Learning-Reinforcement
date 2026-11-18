@@ -166,7 +166,7 @@ def known_concepts(db: DbSession, session_id: UUID) -> list[KnownConcept]:
     Reusing names keeps one concept from splitting into near-duplicates ("glycolysis" vs
     "the glycolysis pathway"), which would leave each copy with too few attempts to rate.
     """
-    this_session = db.scalars(
+    this_session = db.execute(
         select(Concept.name, Mastery.elo)
         .join(Question, Question.concept_id == Concept.concept_id)
         .join(Session, Session.session_id == Question.session_id)
@@ -174,15 +174,15 @@ def known_concepts(db: DbSession, session_id: UUID) -> list[KnownConcept]:
         .where(Question.session_id == session_id)
         .group_by(Concept.concept_id, Concept.name, Mastery.elo)
         .order_by(Concept.name)
-    )
-    recent = db.scalars(
-        select(Concept.name)
+    ).all()
+    recent = db.execute(
+        select(Concept.name, Mastery.elo)
         .join(Mastery, Mastery.concept_id == Concept.concept_id)
         .join(Session, Session.user_id == Mastery.user_id)
         .where(Session.session_id == session_id)
         .order_by(Mastery.updated_at.desc())
         .limit(KNOWN_RECENT)
-    )
+    ).all()
 
     merged = {}
     # combine two lists
