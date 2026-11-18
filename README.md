@@ -1,4 +1,4 @@
-# FrizzAI (WIP)
+# FrizzAI
 A learning reinforcement tool that quizzes you on the lecture you're watching, as you watch it, and adapts questions based on what you already know.
 
 ## The Problem
@@ -7,7 +7,8 @@ In a classroom, a teacher stops to check understanding: they ask questions, noti
 This classic teaching method is lost in recorded online lectures, which tend to be unengaging and forgettable. There is nothing that makes you actively recall what you just heard.
 
 ## How It Works
-A small overlay runs on top of whatever you're watching. It:
+A small expandable window that lives in your MacBook's notch as a small Dynamic Island-style strip that expands into a panel on demand or when a quiz is ready. On Macs without notch, it floats as a capsule right under the menu bar. 
+It:
 1. Listens to your Mac's system audio and transcribes it.
 2. Detects topic changes.
 3. At a natural checkpoint (a topic shift, or enough new material), pauses the video and asks a question grounded in what was just said.
