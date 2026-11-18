@@ -6,13 +6,15 @@
 // A click on the island (or, when open, its top row) steps through hidden -> island -> expanded
 // -> hidden. Cmd+Shift+K always opens the panel, and pressing it again returns to the mode it
 // was opened from; Escape, the minimize button and finishing a quiz do the same. A ready quiz
-// always opens the panel.
+// counts down in the island first ("Quiz in 5, 4, 3, 2, 1"), then opens the panel and pauses
+// the video. Clicking the island during the countdown opens it now; "Later" pushes it back once.
 //
 // Real mode (in Electron): capture and the session API come from renderer.js, quiz data from
 // quiz.js, pause/resume from media.js. Demo mode (a plain browser, or ?demo / ?preset=<name>)
 // runs on built-in data, so every screen can be designed and screenshotted without the audio
 // pipeline or the server. Presets: hidden, idle, empty, listening, title, session, stopped,
-// ended, waiting, question, answered, short, graded, done. Add &nonotch=1 for the floating
+// ended, waiting, question, answered, short, graded, done, countdown (collapsed) and
+// countdown-panel (open). Add &nonotch=1 for the floating
 // capsule used on screens without a notch.
 //
 // The island element stays in the page and only its contents are rebuilt, so CSS can animate
@@ -119,7 +121,15 @@
         checked: false,       // the current question has a result
         result: null,         // its attempt; null after a check means the server couldn't be reached
         results: [],          // [{ question, attempt, answer }] for the questions answered so far
+        // a ready quiz counting down before it opens: { topic, questions, left, start, from, snoozes }
+        //   left: seconds to go; start: when the countdown began (for the ring); from: the mode
+        //   it interrupted, to return to after the quiz; snoozes: how often "Later" was used
+        soon: null,
     }
+
+    const COUNTDOWN_S = 5       // "Quiz in 5, 4, 3, 2, 1", then the quiz opens and the video pauses
+    const SNOOZE_MS = 30000     // "Later" pushes the quiz back this long...
+    const MAX_SNOOZES = 1       // ...once per quiz: one you can push back forever is one you'll ignore
 
     const params = new URLSearchParams(location.search)
     const DEMO = !window.api || params.has("demo") || params.has("preset")
@@ -169,12 +179,17 @@
         short: () => Object.assign({ mode: "expanded", rec: true, topics: T(3) }, quizAt(2, A.slice(0, 2)), { text: A[2] }),
         graded: () => Object.assign({ mode: "expanded", rec: true, topics: T(3) }, answeredAt(2, A)),
         done: () => Object.assign({ mode: "expanded", rec: true, topics: T(3) }, answeredAt(2, A), { view: "done" }),
+        // these two start a countdown once the page is up (see the bottom of this file)
+        countdown: () => ({ rec: true, topics: T(2) }),
+        "countdown-panel": () => ({ mode: "expanded", rec: true, titleSaved: true, title: "Stanford CS229: Lecture 4", topics: T(2) }),
     }
 
     const preset = PRESETS[params.get("preset")]
     let S = Object.assign({}, BASE, preset ? preset() : {})
     let sessionStart = Date.now()
     let timers = []
+    let countdownTimer = null   // ticks the countdown; kept apart from timers, which stopping clears
+    let snoozeTimer = null      // brings a snoozed quiz back
 
     // the island: built once and kept, so its size can animate; render() fills band and content
     const root = document.getElementById("root")
@@ -217,6 +232,16 @@
         logo: (n) => `<svg width="${n}" height="${n}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="var(--accent)"/><path d="M5 10.5c1.5-3 3-3 4.5 0s3 3 4.5 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>`,
     }
     const wave = (live) => `<span class="wave ${live ? "live" : "off"}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>`
+    // the countdown ring drains over the whole countdown. The band is rebuilt every second, so
+    // the animation starts each time with a negative delay: already as far along as the clock
+    const ring = () => {
+        const elapsed = (Date.now() - S.soon.start) / 1000
+        return `<svg class="ring" width="16" height="16" viewBox="0 0 16 16" aria-hidden="true">
+            <circle class="ring-track" cx="8" cy="8" r="6"/>
+            <circle class="ring-fill" cx="8" cy="8" r="6" style="animation-duration: ${COUNTDOWN_S}s; animation-delay: -${elapsed}s"/>
+        </svg>`
+    }
+    const canSnooze = () => S.soon && S.soon.snoozes < MAX_SNOOZES
 
     const lastTopic = () => (S.topics.length ? S.topics[S.topics.length - 1].name : "")
     const inQuiz = () => S.view !== "session"
@@ -264,7 +289,14 @@
     // the wings on either side of the notch: status on the left, waveform on the right
     function bandView() {
         let text
-        if (inQuiz() && S.mode !== "expanded") {
+        // the video is paused during a quiz, so the waveform rests too (still listening, though)
+        let right = wave(S.rec && !inQuiz())
+        if (S.soon) {
+            // the number is its own element, rebuilt each second, so its pop animation replays
+            text = `<span class="wing-text accent">Quiz in <span class="tick">${S.soon.left}</span></span>`
+            const later = canSnooze() ? `<button type="button" class="wing-later" data-action="snooze">Later</button>` : ""
+            right = `${later}${ring()}`
+        } else if (inQuiz() && S.mode !== "expanded") {
             text = S.view === "done"
                 ? `<span class="wing-text accent">Results ready</span>`
                 : `<span class="wing-text accent">Quiz · ${remaining()} left</span>`
@@ -278,7 +310,7 @@
         // play / pause starts or stops listening; its own action, so it doesn't step the island
         const label = S.rec ? "Stop listening" : "Start listening"
         const toggle = `<button type="button" class="wing-btn ${S.rec ? "on" : ""}" data-action="toggleRec" aria-label="${label}" title="${label}" ${S.busy ? "disabled" : ""}>${S.rec ? ICON.pause : ICON.play}</button>`
-        return `<div class="wing left">${toggle}${text}</div><div class="notch-gap"></div><div class="wing right">${wave(S.rec)}</div>`
+        return `<div class="wing left">${toggle}${text}</div><div class="notch-gap"></div><div class="wing right">${right}</div>`
     }
 
     // the panel's top row; the wings above it show the status and the play/pause toggle
@@ -305,6 +337,17 @@
                 <button type="button" class="btn btn-white btn-sm" id="title-save" data-action="saveTitle" ${can ? "" : "disabled"}>${S.titleSaving ? "Saving…" : "Save"}</button>
             </div>
             <div class="hint ${S.titleError ? "warn" : ""}">${esc(S.titleError || "Helps name concepts the way a course would.")}</div>
+        </div>`
+    }
+
+    // with the panel open, the countdown also shows at the top of it, with both choices spelled out
+    function soonView() {
+        if (!S.soon) return ""
+        const later = canSnooze() ? `<button type="button" class="btn btn-white" data-action="snooze">Later</button>` : `<span></span>`
+        return `<div class="card pad soon-card">
+            <div class="eyebrow">Quiz in <span class="tick">${S.soon.left}</span></div>
+            <div class="lead">${esc(S.soon.topic || "Quick check")}</div>
+            <div class="actions">${later}<button type="button" class="btn btn-blue" data-action="quizNow">Start now ${ICON.arrow}</button></div>
         </div>`
     }
 
@@ -336,6 +379,7 @@
             : `<button type="button" class="btn btn-blue btn-lg" data-action="toggleRec" ${S.busy ? "disabled" : ""}>${ICON.mic}Start a new session</button>`
 
         return `<div class="body">
+            ${soonView()}
             <div class="stack-4"><div class="eyebrow">${heading.eyebrow}</div><div class="title">${esc(heading.title)}</div>${note}</div>
             ${titleView()}${topics}${cta}${errorView()}
         </div>`
@@ -458,12 +502,14 @@
         const keep = active && KEEP_FOCUS.includes(active.id) ? active.id : null
         const open = S.mode === "expanded"
 
-        island.className = `island mode-${S.mode}${inQuiz() && !open ? " ready" : ""}`
+        island.className = `island mode-${S.mode}${(inQuiz() && !open) || S.soon ? " ready" : ""}`
         // collapsed, a click anywhere on the island steps the mode; open, only the top row does,
-        // so clicks in the panel stay with its buttons
+        // so clicks in the panel stay with its buttons. During a countdown, a click starts the
+        // quiz instead (stepping could hide the countdown)
+        const click = S.soon ? "quizNow" : "step"
         if (open) island.removeAttribute("data-action")
-        else island.dataset.action = "step"
-        band.dataset.action = "step"
+        else island.dataset.action = click
+        band.dataset.action = click
         band.innerHTML = bandView()
         // the panel stays rendered while collapsed, so it's still there as the island shrinks
         // over it; inert keeps it out of clicks and keyboard focus
@@ -521,7 +567,8 @@
     }
 
     const NEXT = { hidden: "island", island: "expanded", expanded: "hidden" }
-    const closePanel = () => set({ mode: S.back })
+    // during a countdown, closing never goes all the way to hidden, where the countdown can't be seen
+    const closePanel = () => set({ mode: S.soon && S.back === "hidden" ? "island" : S.back })
 
     function clearTimers() {
         timers.forEach(clearTimeout)
@@ -533,12 +580,14 @@
     }
 
     async function startListening() {
-        // a new session: forget the last one's topics and title, and open the panel for the title box
+        // a new session: forget the last one's topics, title and any quiz still counting down or
+        // snoozed, and open the panel for the title box
+        cancelCountdown()
         set(Object.assign(modePatch("expanded"), { busy: true, error: "", topics: [], title: "", titleSaved: false, titleError: "" }))
         if (DEMO) {
             sessionStart = Date.now()
             set({ busy: false, rec: true })
-            later(4000, () => openQuiz(DEMO_QUIZ.topic, DEMO_QUIZ.questions))
+            later(4000, () => announceQuiz(DEMO_QUIZ.topic, DEMO_QUIZ.questions))
             return
         }
         await start()   // renderer.js: logs its own errors and leaves no session on failure
@@ -567,16 +616,68 @@
         return S.rec ? stopListening() : startListening()
     }
 
-    // push, not pull: a ready quiz opens on its own and pauses the video, so it can't be ignored
-    function openQuiz(topic, questions) {
+    // push, not pull: a ready quiz announces itself with a countdown, then opens on its own and
+    // pauses the video, so it can't be ignored. From hidden, the island grows out so the
+    // countdown shows; from is remembered so the quiz returns there when it's done.
+    function announceQuiz(topic, questions, snoozes = 0) {
+        quiz.open = true   // quiz.js stops polling: this quiz is taken
+        clearInterval(countdownTimer)
+        const from = S.mode
+        set({
+            soon: { topic, questions, left: COUNTDOWN_S, start: Date.now(), from, snoozes },
+            mode: from === "hidden" ? "island" : from,
+        })
+        countdownTimer = setInterval(tick, 1000)
+    }
+
+    function tick() {
+        if (!S.soon) return clearInterval(countdownTimer)
+        const left = S.soon.left - 1
+        if (left > 0) set({ soon: Object.assign({}, S.soon, { left }) })
+        else quizNow()
+    }
+
+    // the countdown ran out, or the island / "Start now" was clicked
+    function quizNow() {
+        if (!S.soon) return
+        clearInterval(countdownTimer)
+        openQuiz(S.soon.topic, S.soon.questions, S.soon.from)
+    }
+
+    // "Later": put the island back how it was, and bring the same quiz back in SNOOZE_MS.
+    // quiz.open stays true, so polling doesn't announce it again in the meantime
+    function snooze() {
+        if (!canSnooze()) return
+        clearInterval(countdownTimer)
+        const { topic, questions, from, snoozes } = S.soon
+        set({ soon: null, mode: from === "hidden" && S.mode === "island" ? "hidden" : S.mode })
+        log(`quiz snoozed for ${SNOOZE_MS / 1000} s`)
+        snoozeTimer = setTimeout(() => {
+            snoozeTimer = null
+            announceQuiz(topic, questions, snoozes + 1)
+        }, SNOOZE_MS)
+    }
+
+    // drop a countdown or a snoozed quiz without opening it (a new session is starting)
+    function cancelCountdown() {
+        clearInterval(countdownTimer)
+        clearTimeout(snoozeTimer)
+        if (S.soon || snoozeTimer) quiz.open = false
+        snoozeTimer = null
+        if (S.soon) S = Object.assign({}, S, { soon: null })
+    }
+
+    // from: the mode before the countdown; the quiz returns there when it's done
+    function openQuiz(topic, questions, from = S.mode) {
         quiz.open = true
         const name = topic || "Quick check"
-        set(Object.assign(modePatch("expanded"), {
+        set({
+            mode: "expanded", back: from === "expanded" ? S.back : from, soon: null,
             view: "quiz", topic: name, quiz: questions,
             topics: S.topics.concat([{ name, time: fmtElapsed(Date.now() - sessionStart), score: null }]),
             quizRow: S.topics.length,
             q: 0, picked: null, text: "", grading: false, checked: false, result: null, results: [],
-        }))
+        })
         if (!DEMO) {
             window.api.focus()       // so the answer can be typed right away
             quiz.onQuizShown()       // media.js pauses the video
@@ -614,7 +715,7 @@
         quiz.open = false
         set({ view: "session", mode: S.back, quiz: [], results: [], checked: false, result: null, picked: null, text: "" })
         if (DEMO) {
-            if (S.rec) later(8000, () => openQuiz(DEMO_QUIZ.topic, DEMO_QUIZ.questions))
+            if (S.rec) later(8000, () => announceQuiz(DEMO_QUIZ.topic, DEMO_QUIZ.questions))
             return
         }
         await pollPending()                  // another quiz may already be waiting...
@@ -656,6 +757,8 @@
         skip: () => submit(""),   // graded as blank: wrong, and the feedback gives the answer
         next,
         finish,
+        quizNow,
+        snooze,
     }
 
     root.addEventListener("click", (e) => {
@@ -714,9 +817,12 @@
     }
 
     if (!DEMO) {
-        quiz.onPending = (pending) => openQuiz(pending.topic, pending.questions)
+        quiz.onPending = (pending) => announceQuiz(pending.topic, pending.questions)
         capture.onEnded = () => set({ rec: false, busy: false, error: "Listening stopped: the audio capture ended." })
     }
 
     render()
+    if (params.get("preset") && params.get("preset").startsWith("countdown")) {
+        announceQuiz(DEMO_QUIZ.topic, DEMO_QUIZ.questions)
+    }
 })()
