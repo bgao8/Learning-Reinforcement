@@ -34,6 +34,10 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
     align-items: flex-end;
     padding: var(--edge);
 }
+button, input { font: inherit; }
+button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px solid var(--accent-text); outline-offset: 2px; }
+
+#root { display: flex; justify-content: center; }
 
 .glass {
     background: var(--glass);
@@ -42,6 +46,11 @@ button:focus-visible, textarea:focus-visible, input:focus-visible { outline: 2px
     border: 1px solid rgba(255, 255, 255, 0.10);
     box-shadow: 0 6px 18px rgba(0, 0, 0, 0.28);
 }
+.island.mode-hidden   { --w: var(--notch-w); --h: var(--notch-h); --r: 10px; }
+.island.mode-island   { --w: calc(var(--notch-w) + 2 * var(--wing)); --h: var(--notch-h); --r: 14px; }
+.island.mode-expanded { --w: var(--panel-w); --h: calc(var(--notch-h) + var(--panel-h, 0px)); --r: 26px; cursor: default; }
+/* hidden: a slight bulge on hover says the notch can be clicked */
+.island.mode-hidden:hover { --w: calc(var(--notch-w) + 16px); --h: calc(var(--notch-h) + 4px); }
 
 /* Electron: lets the user drag the overlay by its empty areas */
 .drag { -webkit-app-region: drag; }
