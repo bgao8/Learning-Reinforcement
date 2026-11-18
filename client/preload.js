@@ -3,9 +3,7 @@ const { contextBridge, ipcRenderer } = require("electron")
 contextBridge.exposeInMainWorld("api", {
     log: (msg) => ipcRenderer.invoke("log", msg),
     mediaToggle: () => ipcRenderer.invoke("media-toggle"),
-    // the island overlay: notch size, focus for typing, and where clicks should be caught
-    geometry: () => ipcRenderer.invoke("geometry"),
-    focus: () => ipcRenderer.invoke("focus"),
-    islandRect: (rect) => ipcRenderer.send("island-rect", rect),
-    onShortcut: (fn) => ipcRenderer.on("shortcut", (_e, name) => fn(name)),
+    // #59: fit the window to the UI; main keeps the right edge in place
+    resize: (width, height) => ipcRenderer.invoke("resize", width, height),
+    onClickThrough: (fn) => ipcRenderer.on("click-through", (_e, on) => fn(on)),
 })
