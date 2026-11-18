@@ -9,6 +9,7 @@ from pathlib import Path
 
 from app.db.models import Concept, Mastery, Question, Quiz, Session, TranscriptChunk
 from app.llm import Message, ModelClient
+from app.jobs.mastery import mastery_tier
 
 @dataclass(frozen=True)
 class Span:
@@ -45,7 +46,7 @@ def load_span(db: DbSession, session_id: UUID, start: float, end: float) -> Span
     )
     return span
 
-PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v2.txt").read_text()
+PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v3.txt").read_text()
 
 QUESTIONS_SCHEMA = {
     "type": "object",
@@ -93,10 +94,12 @@ class GeneratedQuiz:
 
 
 def build_message(
-    span: Span, topic: str | None, known_concepts: Sequence[str] = (), lecture_topics: Sequence[str] = (),
+    span: Span, topic: str | None, known_concepts: Sequence[KnownConcept] = (), lecture_topics: Sequence[str] = (),
     title: str | None = None,
 ) -> str:
     """LECTURE TITLE, LECTURE SO FAR, TOPIC, KNOWN CONCEPTS and TRANSCRIPT; all but TRANSCRIPT only when non-empty.
+
+    Each known concept is sent with its mastery tier, "- glycolysis (weak)", which the prompt's adapt rules act on.
 
     Big picture first: a short excerpt alone doesn't say which course it's from, so the
     title and earlier topics help the model name chapter-level concepts.
@@ -109,14 +112,14 @@ def build_message(
     if topic:
         sections.append(f"TOPIC\n{topic}")
     if known_concepts:
-        sections.append("KNOWN CONCEPTS\n" + "\n".join(f"- {name}" for name in known_concepts))
+        sections.append("KNOWN CONCEPTS\n" + "\n".join(f"- {c.name} ({mastery_tier(c.elo)})" for c in known_concepts))
     sections.append(f"TRANSCRIPT\n{span.text}")
     return "\n\n".join(sections)
 
 
 async def generate_questions(
     client: ModelClient, span: Span, topic: str | None,
-    known_concepts: Sequence[str] = (), lecture_topics: Sequence[str] = (), title: str | None = None,
+    known_concepts: Sequence[KnownConcept] = (), lecture_topics: Sequence[str] = (), title: str | None = None,
 ) -> GeneratedQuiz:
     text = build_message(span, topic, known_concepts, lecture_topics, title)
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
