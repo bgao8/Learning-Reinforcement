@@ -72,3 +72,30 @@ def overall_rating(concepts: Iterable[tuple[float, int]]) -> float | None:
     if total == 0:
         return None
     return sum(rating * attempts for rating, attempts in rated) / total
+
+
+# mastery_tier's boundaries sit between rating steps, never on one, so a small change to K
+# can't flip a concept to the next tier. In answers, starting from START_RATING:
+WEAK_BELOW = START_RATING - 45         # 955: two net misses (940); one miss (970) is still "learning"
+VERY_WEAK_BELOW = START_RATING - 120   # 880: about five misses in a row (873)
+SOLID_FROM = START_RATING + 45         # 1045: two net right (1060); one right (1030) is still "learning"
+VERY_SOLID_FROM = START_RATING + 120   # 1120: about five right in a row (1127)
+
+
+def mastery_tier(elo: float | None) -> str:
+    """How well the user knows a concept, as a word the question prompt acts on.
+
+    "new" when there's no rating yet (asked about, never answered). One answer either way
+    stays "learning": one right guess shouldn't skip practice, one slip shouldn't drill it.
+    """
+    if elo is None:
+        return "new"
+    if elo < VERY_WEAK_BELOW:
+        return "very weak"
+    if elo < WEAK_BELOW:
+        return "weak"
+    if elo < SOLID_FROM:
+        return "learning"
+    if elo < VERY_SOLID_FROM:
+        return "solid"
+    return "very solid"

@@ -19,6 +19,12 @@ class Span:
     end_ts: float
 
 
+@dataclass(frozen=True)
+class KnownConcept:
+    name: str
+    elo: float | None
+
+
 def load_span(db: DbSession, session_id: UUID, start: float, end: float) -> Span | None:
     mid = (TranscriptChunk.start_ts + TranscriptChunk.end_ts) / 2
     chunks = db.scalars(
@@ -154,19 +160,21 @@ def keep_grounded(questions: list[GeneratedQuestion], span_text: str) -> list[Ge
 KNOWN_RECENT = 30   # how many of the user's most recently rated concepts to offer for reuse
 
 
-def known_concepts(db: DbSession, session_id: UUID) -> list[str]:
+def known_concepts(db: DbSession, session_id: UUID) -> list[KnownConcept]:
     """Concept names the generator should reuse: this session's first, then the user's recently rated ones.
 
     Reusing names keeps one concept from splitting into near-duplicates ("glycolysis" vs
     "the glycolysis pathway"), which would leave each copy with too few attempts to rate.
     """
     this_session = db.scalars(
-        select(Concept.name)
+        select(Concept.name, Mastery.elo)
         .join(Question, Question.concept_id == Concept.concept_id)
+        .join(Session, Session.session_id == Question.session_id)
+        .outerjoin(Mastery, (Mastery.concept_id == Concept.concept_id) & (Mastery.user_id == Session.user_id))
         .where(Question.session_id == session_id)
-        .group_by(Concept.concept_id, Concept.name)
+        .group_by(Concept.concept_id, Concept.name, Mastery.elo)
         .order_by(Concept.name)
-    ).all()
+    )
     recent = db.scalars(
         select(Concept.name)
         .join(Mastery, Mastery.concept_id == Concept.concept_id)
@@ -174,8 +182,15 @@ def known_concepts(db: DbSession, session_id: UUID) -> list[str]:
         .where(Session.session_id == session_id)
         .order_by(Mastery.updated_at.desc())
         .limit(KNOWN_RECENT)
-    ).all()
-    return list(dict.fromkeys([*this_session, *recent]))   # dedupe, keep order
+    )
+
+    merged = {}
+    # combine two lists
+    for name, elo in [*this_session, *recent]:
+        if name not in merged:
+            merged[name] = KnownConcept(name, elo)
+
+    return list(merged.values())
 
 
 def lecture_topics(db: DbSession, session_id: UUID, exclude_quiz_id: UUID | None = None) -> list[str]:
