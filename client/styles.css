@@ -170,6 +170,33 @@ body:not(.no-notch) .island.mode-hidden .catch {
 .wave.off i { height: 3px; }
 @keyframes bar { 0%, 100% { height: 4px; } 30% { height: 14px; } 60% { height: 7px; } }
 
+/* ---------- quiz countdown ----------
+   "Quiz in 5" in the left wing, a draining ring (and "Later") in the right. The number is
+   rebuilt every second, so its pop (.tick) replays on each tick */
+.tick { display: inline-block; min-width: 1ch; text-align: center; animation: pop .35s var(--spring); }
+@keyframes pop { from { transform: scale(1.5); opacity: .4; } }
+.ring { flex: 0 0 auto; }
+.ring circle { fill: none; stroke-width: 2; }
+.ring-track { stroke: rgba(125, 180, 255, 0.22); }
+/* r = 6, so the circle is 2πr ≈ 37.7 long: dash the whole length and slide it away. Duration
+   and delay come from app.js (COUNTDOWN_S, and how far along the countdown already is) */
+.ring-fill {
+    stroke: var(--accent-text); stroke-linecap: round;
+    stroke-dasharray: 37.7; stroke-dashoffset: 0;
+    transform: rotate(-90deg); transform-origin: center; transform-box: fill-box;   /* start at 12 o'clock */
+    animation: drain linear forwards;
+}
+@keyframes drain { to { stroke-dashoffset: 37.7; } }
+.wing-later {
+    flex: 0 0 auto; height: 20px; padding: 0 8px; border: 0; border-radius: 10px; cursor: pointer;
+    font-size: 11px; font-weight: 600; color: var(--text-2); background: rgba(255, 255, 255, 0.12);
+    transition: background .15s ease;
+}
+.wing-later:hover { background: rgba(255, 255, 255, 0.22); color: #FFFFFF; }
+/* the same countdown at the top of the open panel */
+.card.soon-card { background: rgba(11, 107, 242, 0.10); border-color: rgba(125, 180, 255, 0.35); }
+.card.soon-card .eyebrow { color: var(--accent-text); }
+
 /* ---------- expanded panel ---------- */
 .panel { width: 100%; }
 .head {
