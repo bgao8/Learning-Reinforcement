@@ -1,10 +1,14 @@
 /* Frizz overlay styles: the notch island and its panel.
-   Buttons follow one rule: primary = blue, secondary = white.
-   Results follow one rule: right = blue, partly = yellow, missed = orange, each with its own icon. */
+   Buttons follow one rule: primary = accent (purple), secondary = white.
+   Results follow one rule: right = accent, partly = yellow, missed = orange, each with its own icon. */
 
 :root {
-    --accent: #0B6BF2;          /* primary blue (white text passes 4.5:1) */
-    --accent-text: #7DB4FF;     /* blue for text/marks on dark glass */
+    /* the theme color, #946BAF. The *-rgb copies are for translucent fills: rgba(var(--accent-rgb), .2) */
+    --accent: #946BAF;          /* primary purple (white text on it: 4.2:1) */
+    --accent-rgb: 148, 107, 175;
+    --accent-text: #BFA6CF;     /* lighter purple for text/marks on dark glass (9.6:1 on black) */
+    --accent-text-rgb: 191, 166, 207;
+    --on-accent-text: #251B2C;  /* dark text on --accent-text marks (7.5:1) */
     --partial-text: #F2D46B;    /* yellow for "partly right", paired with the half-circle icon */
     --warn-text: #FFB067;       /* orange for "missed", paired with the ✕ icon */
     --line: rgba(255, 255, 255, 0.08);
@@ -93,15 +97,15 @@ body:not(.no-notch) .island.mode-hidden .catch {
 .wing-text { font-size: 12px; font-weight: 500; color: #FFFFFF; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
 .wing-text.accent { color: var(--accent-text); font-weight: 600; }
 .wing-text.muted  { color: var(--muted); }
-/* play / pause: start or stop listening without opening the panel. Blue in both states, so the
+/* play / pause: start or stop listening without opening the panel. Accent-colored in both states, so the
    island stands out on a black screen (a full-screen video, the dark-mode menu bar) */
 .wing-btn {
     flex: 0 0 auto; width: 22px; height: 22px; padding: 0; border: 0; border-radius: 11px; cursor: pointer;
     display: inline-flex; align-items: center; justify-content: center;
-    background: rgba(125, 180, 255, 0.22); color: var(--accent-text);
+    background: rgba(var(--accent-text-rgb), 0.22); color: var(--accent-text);
     transition: background .15s ease, transform .15s ease;
 }
-.wing-btn:hover { background: rgba(125, 180, 255, 0.34); transform: scale(1.08); }
+.wing-btn:hover { background: rgba(var(--accent-text-rgb), 0.34); transform: scale(1.08); }
 .wing-btn:disabled { opacity: .45; cursor: default; transform: none; }
 .wing-btn svg { margin-left: 1px; }       /* the play triangle looks centered a hair right */
 .wing-btn.on svg { margin-left: 0; }
@@ -114,8 +118,8 @@ body:not(.no-notch) .island.mode-hidden .catch {
 }
 .island.mode-expanded .content { opacity: 1; transition: opacity .25s ease .15s; }
 
-/* a quiz is waiting behind the collapsed island: a soft blue glow until it's opened */
-.island.ready { box-shadow: 0 0 0 1px rgba(125, 180, 255, .35), 0 4px 18px rgba(11, 107, 242, .35); }
+/* a quiz is waiting behind the collapsed island: a soft accent glow until it's opened */
+.island.ready { box-shadow: 0 0 0 1px rgba(var(--accent-text-rgb), .35), 0 4px 18px rgba(var(--accent-rgb), .35); }
 
 /* no notch (external display): a floating capsule under the menu bar; hidden shrinks it to a
    small dim bar that can still be clicked */
@@ -155,7 +159,7 @@ body:not(.no-notch) .island.mode-hidden .catch {
 
 .count {
     min-width: 18px; height: 18px; padding: 0 5px; border-radius: 9px;
-    background: #FFFFFF; color: #0A2E66; font-size: 11px; font-weight: 700;
+    background: #FFFFFF; color: var(--on-accent-text); font-size: 11px; font-weight: 700;
     display: inline-flex; align-items: center; justify-content: center;
 }
 
@@ -177,7 +181,7 @@ body:not(.no-notch) .island.mode-hidden .catch {
 @keyframes pop { from { transform: scale(1.5); opacity: .4; } }
 .ring { flex: 0 0 auto; }
 .ring circle { fill: none; stroke-width: 2; }
-.ring-track { stroke: rgba(125, 180, 255, 0.22); }
+.ring-track { stroke: rgba(var(--accent-text-rgb), 0.22); }
 /* r = 6, so the circle is 2πr ≈ 37.7 long: dash the whole length and slide it away. Duration
    and delay come from app.js (COUNTDOWN_S, and how far along the countdown already is) */
 .ring-fill {
@@ -194,7 +198,7 @@ body:not(.no-notch) .island.mode-hidden .catch {
 }
 .wing-later:hover { background: rgba(255, 255, 255, 0.22); color: #FFFFFF; }
 /* the same countdown at the top of the open panel */
-.card.soon-card { background: rgba(11, 107, 242, 0.10); border-color: rgba(125, 180, 255, 0.35); }
+.card.soon-card { background: rgba(var(--accent-rgb), 0.10); border-color: rgba(var(--accent-text-rgb), 0.35); }
 .card.soon-card .eyebrow { color: var(--accent-text); }
 
 /* ---------- expanded panel ---------- */
@@ -266,8 +270,8 @@ body:not(.no-notch) .island.mode-hidden .catch {
     font-size: 11px; font-weight: 600; background: rgba(255,255,255,.10); color: var(--text-2);
 }
 .opt.picked { border-color: rgba(255,255,255,.40); background: rgba(255,255,255,.08); }
-.opt.right { border-color: var(--accent-text); background: rgba(11,107,242,.20); }
-.opt.right .mark { background: var(--accent-text); color: #0A2E66; }
+.opt.right { border-color: var(--accent-text); background: rgba(var(--accent-rgb), .20); }
+.opt.right .mark { background: var(--accent-text); color: var(--on-accent-text); }
 .opt.wrong { border-color: var(--warn-text); background: rgba(255,159,67,.14); }
 .opt.wrong .mark { background: var(--warn-text); color: #4A2500; }
 .opt.dim { opacity: .5; border-color: rgba(255,255,255,.06); background: transparent; }
@@ -283,7 +287,7 @@ textarea::placeholder { color: #8B8B94; }
 textarea:disabled { opacity: .75; }
 
 .feedback { display: flex; flex-direction: column; gap: 4px; padding: 10px 12px; border-radius: 10px; }
-.feedback.ok      { background: rgba(11,107,242,.14); }
+.feedback.ok      { background: rgba(var(--accent-rgb), .14); }
 .feedback.partial { background: rgba(242,212,107,.10); }
 .feedback.miss    { background: rgba(255,159,67,.10); }
 .feedback.neutral { background: rgba(255,255,255,.06); }
@@ -318,7 +322,7 @@ textarea:disabled { opacity: .75; }
 .score-row { display: flex; align-items: baseline; justify-content: space-between; }
 .score { font-size: 28px; font-weight: 700; letter-spacing: -0.02em; font-variant-numeric: tabular-nums; }
 .res-icon { flex: 0 0 auto; width: 20px; height: 20px; border-radius: 10px; display: inline-flex; align-items: center; justify-content: center; }
-.res-icon.ok      { background: var(--accent-text); color: #0A2E66; }
+.res-icon.ok      { background: var(--accent-text); color: var(--on-accent-text); }
 .res-icon.partial { background: var(--partial-text); color: #4A3A00; }
 .res-icon.miss    { background: var(--warn-text); color: #4A2500; }
 .res-icon.neutral { background: rgba(255,255,255,.14); color: var(--text-2); }

@@ -232,7 +232,6 @@
         x: (n) => svg(n, '<path d="M7 7l10 10M17 7L7 17"/>', stroke(3)),
         half: (n) => svg(n, '<circle cx="12" cy="12" r="7.5" fill="none" stroke="currentColor" stroke-width="2.6"/><path d="M12 4.5a7.5 7.5 0 0 0 0 15z" fill="currentColor"/>'),
         dash: (n) => svg(n, '<path d="M7 12h10"/>', stroke(3)),
-        logo: (n) => `<svg width="${n}" height="${n}" viewBox="0 0 20 20" aria-hidden="true"><circle cx="10" cy="10" r="9" fill="var(--accent)"/><path d="M5 10.5c1.5-3 3-3 4.5 0s3 3 4.5 0" stroke="#fff" stroke-width="1.8" fill="none" stroke-linecap="round"/></svg>`,
     }
     const wave = (live) => `<span class="wave ${live ? "live" : "off"}" aria-hidden="true"><i></i><i></i><i></i><i></i><i></i></span>`
     // the countdown ring drains over the whole countdown. The band is rebuilt every second, so
@@ -319,7 +318,7 @@
     // the panel's top row; the wings above it show the status and the play/pause toggle
     function headView() {
         return `<div class="head">
-            ${ICON.logo(20)}<span class="brand">Frizz</span>
+            <span class="brand">Frizz</span>
             <span class="spacer"></span>
             <button type="button" class="icon-btn" data-action="collapse" aria-label="Minimize" title="Minimize">${ICON.up}</button>
         </div>`
