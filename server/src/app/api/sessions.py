@@ -223,7 +223,9 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
             span = load_span(db, session_id, trigger.span_start, trigger.span_end)
             known = known_concepts(db, session_id)
             earlier = lecture_topics(db, session_id, exclude_quiz_id=quiz_id)
-            title = db.scalar(select(Session.title).where(Session.session_id == session_id))
+            title, course = db.execute(
+                select(Session.title, Session.course).where(Session.session_id == session_id)
+            ).one()
         if span is None:
             log.warning("quiz %s: no transcript in span, no questions", quiz_id)
             set_quiz_status(quiz_id, "empty", "no_transcript")
@@ -231,7 +233,7 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
 
         # no DB session held during the LLM call
         started = time.perf_counter()
-        generated = await generate_questions(client, span, trigger.topic, known, earlier, title)
+        generated = await generate_questions(client, span, trigger.topic, known, earlier, title, course)
         elapsed = time.perf_counter() - started
 
         kept = keep_grounded(generated.questions, span.text)
