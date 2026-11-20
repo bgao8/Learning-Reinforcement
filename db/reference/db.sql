@@ -13,6 +13,7 @@ CREATE TABLE sessions (
     session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id    UUID NOT NULL REFERENCES users(user_id),
     title      TEXT,
+    course     TEXT,
     source     TEXT,
     started_at TIMESTAMPTZ NOT NULL DEFAULT now(),
     ended_at   TIMESTAMPTZ,

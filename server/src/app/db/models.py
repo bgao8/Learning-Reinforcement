@@ -48,6 +48,7 @@ class Session(Base):
         ForeignKey("users.user_id"), nullable=False
     )
     title: Mapped[str | None] = mapped_column(Text)
+    course: Mapped[str | None] = mapped_column(Text)
     source: Mapped[str | None] = mapped_column(Text)
     started_at: Mapped[datetime] = mapped_column(
         TIMESTAMP(timezone=True), nullable=False, server_default=text("now()")

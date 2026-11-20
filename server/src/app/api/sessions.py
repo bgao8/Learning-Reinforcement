@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import Attempt, Question, Quiz, Session, User, TranscriptChunk
 from app.jobs.questions import (
-    GeneratedQuiz, generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions,
+    GeneratedQuiz, generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions, save_course
 )
 from app.db.session import SessionLocal, get_db
 from app.api.deps import get_current_user, get_shift_client, get_smart_client
@@ -223,7 +223,9 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
             span = load_span(db, session_id, trigger.span_start, trigger.span_end)
             known = known_concepts(db, session_id)
             earlier = lecture_topics(db, session_id, exclude_quiz_id=quiz_id)
-            title = db.scalar(select(Session.title).where(Session.session_id == session_id))
+            title, course = db.execute(
+                select(Session.title, Session.course).where(Session.session_id == session_id)
+            ).one()
         if span is None:
             log.warning("quiz %s: no transcript in span, no questions", quiz_id)
             set_quiz_status(quiz_id, "empty", "no_transcript")
@@ -231,7 +233,7 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
 
         # no DB session held during the LLM call
         started = time.perf_counter()
-        generated = await generate_questions(client, span, trigger.topic, known, earlier, title)
+        generated = await generate_questions(client, span, trigger.topic, known, earlier, title, course)
         elapsed = time.perf_counter() - started
 
         kept = keep_grounded(generated.questions, span.text)
@@ -244,6 +246,8 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
 
         with SessionLocal() as db:
             save_questions(db, session_id, quiz_id, span, kept)
+            if status == "ready":
+                save_course(db, session_id, generated.course)
             quiz = db.get(Quiz, quiz_id)
             quiz.status, quiz.skip_reason = status, skip_reason   # same commit as the questions
             db.commit()

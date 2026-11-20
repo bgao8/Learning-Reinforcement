@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 import re
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session as DbSession
 from uuid import UUID
@@ -46,7 +46,7 @@ def load_span(db: DbSession, session_id: UUID, start: float, end: float) -> Span
     )
     return span
 
-PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v3.txt").read_text()
+PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v4.txt").read_text()
 
 QUESTIONS_SCHEMA = {
     "type": "object",
@@ -95,9 +95,9 @@ class GeneratedQuiz:
 
 def build_message(
     span: Span, topic: str | None, known_concepts: Sequence[KnownConcept] = (), lecture_topics: Sequence[str] = (),
-    title: str | None = None,
+    title: str | None = None, course: str | None = None,
 ) -> str:
-    """LECTURE TITLE, LECTURE SO FAR, TOPIC, KNOWN CONCEPTS and TRANSCRIPT; all but TRANSCRIPT only when non-empty.
+    """LECTURE TITLE, COURSE, LECTURE SO FAR, TOPIC, KNOWN CONCEPTS and TRANSCRIPT; all but TRANSCRIPT only when non-empty.
 
     Each known concept is sent with its mastery tier, "- glycolysis (weak)", which the prompt's adapt rules act on.
 
@@ -107,6 +107,8 @@ def build_message(
     sections = []
     if title:
         sections.append(f"LECTURE TITLE\n{title}")
+    if course:
+        sections.append(f"COURSE\n{course}")
     if lecture_topics:
         sections.append("LECTURE SO FAR\n" + "\n".join(f"- {t}" for t in lecture_topics))
     if topic:
@@ -119,9 +121,10 @@ def build_message(
 
 async def generate_questions(
     client: ModelClient, span: Span, topic: str | None,
-    known_concepts: Sequence[KnownConcept] = (), lecture_topics: Sequence[str] = (), title: str | None = None,
+    known_concepts: Sequence[KnownConcept] = (), lecture_topics: Sequence[str] = (),
+    title: str | None = None, course: str | None = None,
 ) -> GeneratedQuiz:
-    text = build_message(span, topic, known_concepts, lecture_topics, title)
+    text = build_message(span, topic, known_concepts, lecture_topics, title, course)
     response = await client.generate(system=PROMPT, messages=[Message(role="user", content=text)], schema=QUESTIONS_SCHEMA)
 
     questions = []
@@ -247,3 +250,14 @@ def save_questions(db: DbSession, session_id: UUID, quiz_id: UUID, span: Span, q
             span_start_ts=span.start_ts,
             span_end_ts=span.end_ts,
         ))
+
+def save_course(db: DbSession, session_id: UUID, course: str) -> None:
+    course = course.strip().lower()
+    if not course:
+        return
+
+    db.execute(
+        update(Session)
+        .where(Session.session_id == session_id, Session.course.is_(None))
+        .values(course=course)
+    )

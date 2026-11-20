@@ -203,3 +203,17 @@ def test_prompt_names_every_skip_reason():
     # the model can only use the reasons the prompt explains
     for reason in QUESTIONS_SCHEMA["properties"]["skip_reason"]["enum"]:
         assert f'"{reason}"' in PROMPT
+
+
+def test_course_comes_after_the_title():
+    message = build_message(SPAN, "glycolysis", [GLYCOLYSIS], ["cell structure"], "Bio 101: respiration", "biology")
+    assert message.startswith("LECTURE TITLE\nBio 101: respiration\n\nCOURSE\nbiology\n\nLECTURE SO FAR")
+
+
+def test_no_course_section_until_decided():
+    assert "COURSE" not in build_message(SPAN, "glycolysis", course=None)
+    assert "COURSE" not in build_message(SPAN, "glycolysis", course="")
+
+
+def test_prompt_keeps_a_decided_course():
+    assert "If COURSE is given, the course is already decided" in PROMPT
