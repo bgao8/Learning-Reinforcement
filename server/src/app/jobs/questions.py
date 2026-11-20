@@ -46,7 +46,7 @@ def load_span(db: DbSession, session_id: UUID, start: float, end: float) -> Span
     )
     return span
 
-PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v3.txt").read_text()
+PROMPT = (Path(__file__).parent.parent / "prompts" / "questions_v4.txt").read_text()
 
 QUESTIONS_SCHEMA = {
     "type": "object",
