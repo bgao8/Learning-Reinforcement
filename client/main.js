@@ -6,6 +6,8 @@ const { execFile, execFileSync } = require("node:child_process")
 const MEDIAKEY = path.join(__dirname, "native", "mediakey")
 // prints the notch's size and position; built from native/notch.swift
 const NOTCH = path.join(__dirname, "native", "notch")
+// prints the playing video's browser window title; built from native/videotitle.swift
+const VIDEOTITLE = path.join(__dirname, "native", "videotitle")
 
 // The island overlay: one fixed, transparent window centered on the notch, big enough for the
 // open panel. The UI animates inside it, so the window itself never moves or resizes (and if
@@ -112,6 +114,15 @@ function watchCursor() {
     }, HIT_TEST_MS)
 }
 
+// "(3) Lecture 4: Linear Regression - YouTube 🔊" -> "Lecture 4: Linear Regression"
+function cleanTitle(raw) {
+    return raw
+        .replace(/\s*🔊\s*$/u, "")                                       // Chrome's "playing sound" marker
+        .replace(/^\(\d+\+?\)\s*/, "")                                    // unread-notification count
+        .replace(/\s+[-–—]\s+(YouTube|Mozilla Firefox|Google Chrome)$/, "")  // site or browser name
+        .trim()
+}
+
 // a global shortcut: tell the renderer, which owns the island's state
 function shortcut(accelerator, name) {
     const ok = globalShortcut.register(accelerator, () => {
@@ -158,6 +169,26 @@ app.whenReady().then(() => {
                 : (stderr.trim() || err.message)
             console.error(`[main] media-toggle failed: ${reason}`)
             resolve({ ok: false, reason })
+        })
+    }))
+
+    // the playing video's title, for the session title. Never throws: resolves { title, playing }
+    // or { title: null }, so a missing helper or permission only means no auto-title.
+    ipcMain.handle("video-title", () => new Promise((resolve) => {
+        execFile(VIDEOTITLE, { timeout: 2000, encoding: "utf8" }, (err, stdout) => {
+            if (err) {
+                const reason = err.code === "ENOENT" ? "native/videotitle not built (run npm run build:native)" : err.message
+                console.error(`[main] video-title failed: ${reason}`)
+                return resolve({ title: null })
+            }
+            try {
+                const out = JSON.parse(stdout)
+                const title = out.title ? cleanTitle(out.title) : ""
+                resolve(title ? { title, playing: out.playing === true } : { title: null })
+            } catch (parseErr) {
+                console.error(`[main] video-title printed bad JSON: ${parseErr.message}`)
+                resolve({ title: null })
+            }
         })
     }))
 

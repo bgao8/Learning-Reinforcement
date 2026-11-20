@@ -12,7 +12,7 @@
 // Real mode (in Electron): capture and the session API come from renderer.js, quiz data from
 // quiz.js, pause/resume from media.js. Demo mode (a plain browser, or ?demo / ?preset=<name>)
 // runs on built-in data, so every screen can be designed and screenshotted without the audio
-// pipeline or the server. Presets: hidden, idle, empty, listening, title, session, stopped,
+// pipeline or the server. Presets: hidden, idle, empty, listening, title, title-auto, session, stopped,
 // ended, waiting, question, answered, short, graded, done, countdown (collapsed) and
 // countdown-panel (open). Add &nonotch=1 for the floating
 // capsule used on screens without a notch.
@@ -109,6 +109,7 @@
         topics: [],           // one row per quiz this session: { name, time, score }
         title: "",            // optional video title (#25)
         titleSaved: false,
+        titleAuto: false,     // the saved title was detected from the browser, not typed: still offered for editing
         titleSaving: false,
         titleError: "",
         topic: "",            // the open quiz's topic
@@ -170,6 +171,7 @@
         empty: () => OPEN,
         listening: () => ({ rec: true }),
         title: () => ({ mode: "expanded", rec: true, title: "Stanford CS229: Lecture 4" }),
+        "title-auto": () => ({ mode: "expanded", rec: true, title: "Stanford CS229: Lecture 4", titleSaved: true, titleAuto: true }),
         session: () => ({ mode: "expanded", rec: true, titleSaved: true, title: "Stanford CS229: Lecture 4", topics: T(2) }),
         stopped: () => ({ topics: T(3) }),
         ended: () => ({ mode: "expanded", titleSaved: true, title: "Stanford CS229: Lecture 4", topics: T(3) }),
@@ -190,6 +192,7 @@
     let timers = []
     let countdownTimer = null   // ticks the countdown; kept apart from timers, which stopping clears
     let snoozeTimer = null      // brings a snoozed quiz back
+    let titleTimer = null       // looks for the playing video's title early in a session
 
     // the island: built once and kept, so its size can animate; render() fills band and content
     const root = document.getElementById("root")
@@ -326,9 +329,10 @@
         return S.error ? `<div class="error" role="alert">${esc(S.error)}</div>` : ""
     }
 
-    // optional video title (#25): offered while listening, until saved or the first quiz
+    // optional video title (#25): offered while listening, until typed and saved or the first quiz.
+    // A detected title is already saved but stays here, so a wrong guess can be fixed.
     function titleView() {
-        if (!S.rec || S.titleSaved || S.topics.length) return ""
+        if (!S.rec || (S.titleSaved && !S.titleAuto) || S.topics.length) return ""
         const can = S.title.trim().length > 0 && !S.titleSaving
         return `<div class="card pad">
             <div class="eyebrow">Video title · optional</div>
@@ -336,7 +340,7 @@
                 <input id="title-input" type="text" maxlength="300" placeholder="Paste the lecture or video title" value="${esc(S.title)}" ${S.titleSaving ? "disabled" : ""}>
                 <button type="button" class="btn btn-white btn-sm" id="title-save" data-action="saveTitle" ${can ? "" : "disabled"}>${S.titleSaving ? "Saving…" : "Save"}</button>
             </div>
-            <div class="hint ${S.titleError ? "warn" : ""}">${esc(S.titleError || "Helps name concepts the way a course would.")}</div>
+            <div class="hint ${S.titleError ? "warn" : ""}">${esc(S.titleError || (S.titleAuto ? "Detected from your browser · edit if it's wrong." : "Helps name concepts the way a course would."))}</div>
         </div>`
     }
 
@@ -583,7 +587,8 @@
         // a new session: forget the last one's topics, title and any quiz still counting down or
         // snoozed, and open the panel for the title box
         cancelCountdown()
-        set(Object.assign(modePatch("expanded"), { busy: true, error: "", topics: [], title: "", titleSaved: false, titleError: "" }))
+        clearInterval(titleTimer)
+        set(Object.assign(modePatch("expanded"), { busy: true, error: "", topics: [], title: "", titleSaved: false, titleAuto: false, titleError: "" }))
         if (DEMO) {
             sessionStart = Date.now()
             set({ busy: false, rec: true })
@@ -595,6 +600,7 @@
             sessionStart = Date.now()
             log("Recording started")
             set({ busy: false, rec: true })
+            watchTitle(currentSessionId())
         } else {
             log("Recording failed to start")
             set({ busy: false, error: "Couldn't start listening. Is the server running, and is screen recording allowed?" })
@@ -604,6 +610,7 @@
     async function stopListening() {
         set({ busy: true })
         clearTimers()
+        clearInterval(titleTimer)
         if (!DEMO) {
             await stop()   // renderer.js: flushes the last audio and ends the session
             log("Recording stopped")
@@ -730,11 +737,51 @@
         try {
             if (!DEMO) await saveSessionTitle(sessionId, title)
             log(`title saved: ${title}`)
-            set({ titleSaving: false, titleSaved: true, title })
+            set({ titleSaving: false, titleSaved: true, titleAuto: false, title })
         } catch (err) {
             log(err.message)
             set({ titleSaving: false, titleError: "Couldn't save the title. Try again." })
         }
+    }
+
+    // Fill in the title from the browser (native/videotitle via main.js), so concepts get named
+    // well even when nobody types one. Listening often starts before the video does, so look every
+    // TITLE_POLL_MS for a window that's playing sound. The first quiz can't come before the
+    // cooldown (TITLE_GIVE_UP_MS), so by then settle for the frontmost browser window, or nothing.
+    const TITLE_POLL_MS = 10000
+    const TITLE_GIVE_UP_MS = 120000   // the server's gate_cooldown_s
+
+    function watchTitle(sessionId) {
+        clearInterval(titleTimer)
+        const started = Date.now()
+        const check = async () => {
+            if (!S.rec || currentSessionId() !== sessionId) return clearInterval(titleTimer)
+            const found = await window.api.videoTitle()
+            const giveUp = Date.now() - started >= TITLE_GIVE_UP_MS
+            if (found.title && (found.playing || giveUp)) {
+                clearInterval(titleTimer)
+                await useDetectedTitle(sessionId, found.title)
+            } else if (giveUp) {
+                clearInterval(titleTimer)
+                log("no video title detected")
+            }
+        }
+        check()
+        titleTimer = setInterval(check, TITLE_POLL_MS)
+    }
+
+    async function useDetectedTitle(sessionId, title) {
+        // never replace what the user typed, saved or not
+        if (S.title.trim() || S.titleSaved || S.titleSaving) return
+        try {
+            await saveSessionTitle(sessionId, title)
+        } catch (err) {
+            log(`detected title not saved: ${err.message}`)
+            return
+        }
+        if (currentSessionId() !== sessionId || S.title.trim()) return   // stopped, or typed meanwhile
+        log(`title detected: ${title}`)
+        set({ title, titleSaved: true, titleAuto: true })
     }
 
     // Cmd+Shift+K (from main.js): open the panel, or close it back to where it was opened from

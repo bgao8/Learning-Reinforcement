@@ -5,7 +5,7 @@
   "main": "main.js",
   "scripts": {
     "start": "electron .",
-    "build:native": "swiftc -O native/mediakey.swift -o native/mediakey && swiftc -O native/notch.swift -o native/notch"
+    "build:native": "swiftc -O native/mediakey.swift -o native/mediakey && swiftc -O native/notch.swift -o native/notch && swiftc -O native/videotitle.swift -o native/videotitle"
   },
   "keywords": [],
   "author": "",
