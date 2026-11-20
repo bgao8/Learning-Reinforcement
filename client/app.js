@@ -745,20 +745,33 @@
     }
 
     // Fill in the title from the browser (native/videotitle via main.js), so concepts get named
-    // well even when nobody types one. Listening often starts before the video does, so look every
-    // TITLE_POLL_MS for a window that's playing sound. The first quiz can't come before the
-    // cooldown (TITLE_GIVE_UP_MS), so by then settle for the frontmost browser window, or nothing.
+    // well even when nobody types one. A window playing sound ("sound") or on a video site ("site")
+    // is used right away. The frontmost browser window ("front") is only a guess, and listening
+    // often starts before the video does, so keep looking every TITLE_POLL_MS for a better match.
+    // The first quiz can't come before the cooldown (TITLE_GIVE_UP_MS): by then, settle for the guess.
     const TITLE_POLL_MS = 10000
     const TITLE_GIVE_UP_MS = 120000   // the server's gate_cooldown_s
+    const TITLE_SOURCES = {
+        sound: "the window playing sound",
+        site: "a video site window",
+        front: "the frontmost browser window (still looking for a better match)",
+    }
 
     function watchTitle(sessionId) {
         clearInterval(titleTimer)
         const started = Date.now()
+        let lastSeen = null   // log what the checks find only when it changes, not every 10 s
+        log("watching for the video title")
         const check = async () => {
             if (!S.rec || currentSessionId() !== sessionId) return clearInterval(titleTimer)
             const found = await window.api.videoTitle()
+            const seen = found.title ? `${TITLE_SOURCES[found.source] || found.source}: "${found.title}"` : "no titled browser window"
+            if (seen !== lastSeen) {
+                log(`video title check: ${seen}`)
+                lastSeen = seen
+            }
             const giveUp = Date.now() - started >= TITLE_GIVE_UP_MS
-            if (found.title && (found.playing || giveUp)) {
+            if (found.title && (found.source !== "front" || giveUp)) {
                 clearInterval(titleTimer)
                 await useDetectedTitle(sessionId, found.title)
             } else if (giveUp) {

@@ -172,8 +172,9 @@ app.whenReady().then(() => {
         })
     }))
 
-    // the playing video's title, for the session title. Never throws: resolves { title, playing }
-    // or { title: null }, so a missing helper or permission only means no auto-title.
+    // the playing video's title, for the session title. Never throws: resolves { title, source }
+    // (source: "sound" | "site" | "front", see native/videotitle.swift) or { title: null }, so a
+    // missing helper or permission only means no auto-title.
     ipcMain.handle("video-title", () => new Promise((resolve) => {
         execFile(VIDEOTITLE, { timeout: 2000, encoding: "utf8" }, (err, stdout) => {
             if (err) {
@@ -184,7 +185,7 @@ app.whenReady().then(() => {
             try {
                 const out = JSON.parse(stdout)
                 const title = out.title ? cleanTitle(out.title) : ""
-                resolve(title ? { title, playing: out.playing === true } : { title: null })
+                resolve(title ? { title, source: out.source } : { title: null })
             } catch (parseErr) {
                 console.error(`[main] video-title printed bad JSON: ${parseErr.message}`)
                 resolve({ title: null })
