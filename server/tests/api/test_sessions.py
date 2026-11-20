@@ -344,8 +344,8 @@ def llm(*scripted):
     return ModelClient(provider=FakeProvider(list(scripted)), model="fake-model")
 
 
-def answer(*questions, skip_reason=None):
-    out = {"course": "biology 101", "questions": list(questions)}
+def answer(*questions, skip_reason=None, course="biology 101"):
+    out = {"course": course, "questions": list(questions)}
     if skip_reason:
         out["skip_reason"] = skip_reason
     return json.dumps(out)
@@ -550,3 +550,44 @@ async def test_questions_task_sends_the_session_title_first(db, recording, use_t
 
     content = client.provider.requests[0].messages[0].content
     assert content.startswith("LECTURE TITLE\nCellular respiration, lecture 4\n\n")
+
+
+# --- the session's course: decided by the first ready quiz, then sent to every later one ---
+
+def course_of(db, session_id):
+    return db.scalar(select(Session.course).where(Session.session_id == session_id))
+
+
+@pytest.mark.anyio
+async def test_questions_task_first_ready_quiz_saves_the_course(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+
+    await questions_task(llm(answer(question(), course="Cell Biology")), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert course_of(db, recording.session_id) == "cell biology"
+
+
+@pytest.mark.anyio
+async def test_questions_task_empty_quiz_does_not_decide_the_course(db, recording, use_test_db):
+    # an intro or an ad: its course guess isn't trusted, so the next quiz still gets to decide
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    quiz = make_quiz(db, recording.session_id)
+
+    await questions_task(llm(answer(skip_reason="not_educational", course="marketing")), recording.session_id, quiz.quiz_id, TRIGGER)
+
+    assert course_of(db, recording.session_id) is None
+
+
+@pytest.mark.anyio
+async def test_questions_task_sends_the_decided_course_and_keeps_it(db, recording, use_test_db):
+    add_chunks(db, recording.session_id, SPAN_CHUNKS)
+    first = make_quiz(db, recording.session_id)
+    await questions_task(llm(answer(question(), course="cell biology")), recording.session_id, first.quiz_id, TRIGGER)
+
+    second = make_quiz(db, recording.session_id)
+    client = llm(answer(question(prompt="again"), course="biochemistry"))   # the model drifts anyway
+    await questions_task(client, recording.session_id, second.quiz_id, TRIGGER)
+
+    assert "COURSE\ncell biology" in client.provider.requests[0].messages[0].content
+    assert course_of(db, recording.session_id) == "cell biology"

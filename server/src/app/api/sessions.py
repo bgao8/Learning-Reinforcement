@@ -14,7 +14,7 @@ from sqlalchemy.orm import Session as DbSession
 
 from app.db.models import Attempt, Question, Quiz, Session, User, TranscriptChunk
 from app.jobs.questions import (
-    GeneratedQuiz, generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions,
+    GeneratedQuiz, generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions, save_course
 )
 from app.db.session import SessionLocal, get_db
 from app.api.deps import get_current_user, get_shift_client, get_smart_client
@@ -246,6 +246,8 @@ async def questions_task(client: ModelClient, session_id: UUID, quiz_id: UUID, t
 
         with SessionLocal() as db:
             save_questions(db, session_id, quiz_id, span, kept)
+            if status == "ready":
+                save_course(db, session_id, generated.course)
             quiz = db.get(Quiz, quiz_id)
             quiz.status, quiz.skip_reason = status, skip_reason   # same commit as the questions
             db.commit()

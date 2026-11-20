@@ -1,10 +1,10 @@
-"""get_or_create_concept, known_concepts and lecture_topics against the local Postgres (rolled back after each test)."""
+"""get_or_create_concept, known_concepts, lecture_topics and save_course against the local Postgres (rolled back after each test)."""
 from datetime import UTC, datetime, timedelta
 
 from sqlalchemy import func, select
 
 from app.db.models import Concept, Mastery, Question, Quiz, Session, User
-from app.jobs.questions import KnownConcept, get_or_create_concept, known_concepts, lecture_topics
+from app.jobs.questions import KnownConcept, get_or_create_concept, known_concepts, lecture_topics, save_course
 
 
 def concept_count(db) -> int:
@@ -142,3 +142,34 @@ def test_other_sessions_topics_are_ignored(db, recording, user):
     db.flush()
     add_quiz(db, other.session_id, "macroeconomics", start=0)
     assert lecture_topics(db, recording.session_id) == []
+
+
+# --- save_course ---
+
+def course_of(db, session_id):
+    return db.scalar(select(Session.course).where(Session.session_id == session_id))
+
+
+def test_save_course_sets_it_normalized(db, recording):
+    save_course(db, recording.session_id, "  Deep Learning ")
+    assert course_of(db, recording.session_id) == "deep learning"
+
+
+def test_save_course_never_overwrites(db, recording):
+    # the first ready quiz decides; a later one (or one finishing at the same time) changes nothing
+    save_course(db, recording.session_id, "deep learning")
+    save_course(db, recording.session_id, "computer vision")
+    assert course_of(db, recording.session_id) == "deep learning"
+
+
+def test_save_course_ignores_a_blank_course(db, recording):
+    save_course(db, recording.session_id, "   ")
+    assert course_of(db, recording.session_id) is None
+
+
+def test_save_course_only_touches_its_session(db, recording, user):
+    other = Session(user_id=user.user_id)
+    db.add(other)
+    db.flush()
+    save_course(db, recording.session_id, "deep learning")
+    assert course_of(db, other.session_id) is None

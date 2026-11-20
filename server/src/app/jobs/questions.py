@@ -1,7 +1,7 @@
 from collections.abc import Sequence
 from dataclasses import dataclass
 import re
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.dialects.postgresql import insert
 from sqlalchemy.orm import Session as DbSession
 from uuid import UUID
@@ -250,3 +250,14 @@ def save_questions(db: DbSession, session_id: UUID, quiz_id: UUID, span: Span, q
             span_start_ts=span.start_ts,
             span_end_ts=span.end_ts,
         ))
+
+def save_course(db: DbSession, session_id: UUID, course: str) -> None:
+    course = course.strip().lower()
+    if not course:
+        return
+
+    db.execute(
+        update(Session)
+        .where(Session.session_id == session_id, Session.course.is_(None))
+        .values(course=course)
+    )
