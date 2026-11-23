@@ -9,6 +9,18 @@ CREATE TABLE users (
     created_at  TIMESTAMPTZ NOT NULL DEFAULT now()
 );
 
+-- one row per signed-in device (#33); only the token's SHA-256 is stored
+CREATE TABLE device_tokens (
+    token_id     UUID PRIMARY KEY DEFAULT gen_random_uuid(),
+    user_id      UUID NOT NULL REFERENCES users(user_id) ON DELETE CASCADE,
+    token_hash   VARCHAR(64) NOT NULL UNIQUE,
+    label        TEXT,
+    created_at   TIMESTAMPTZ NOT NULL DEFAULT now(),
+    last_used_at TIMESTAMPTZ,
+    expires_at   TIMESTAMPTZ NOT NULL,
+    revoked_at   TIMESTAMPTZ
+);
+
 CREATE TABLE sessions (
     session_id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     user_id    UUID NOT NULL REFERENCES users(user_id),

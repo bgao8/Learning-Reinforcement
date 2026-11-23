@@ -6,9 +6,10 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from sqlalchemy.orm import Session as DbSession
+from sqlalchemy import select
 
 from app.api.deps import get_current_user, get_smart_client
-from app.db.models import Attempt, Question, User
+from app.db.models import Attempt, Question, User, Session, Quiz
 from app.db.session import get_db
 from app.jobs.grading import grade
 from app.jobs.mastery_store import record_answer
@@ -45,7 +46,11 @@ async def create_attempt(
     user: User = Depends(get_current_user),
     client: ModelClient = Depends(get_smart_client),
 ):
-    question = db.get(Question, question_id)
+    question = db.scalar(
+        select(Question)
+        .join(Session, Question.session_id == Session.session_id)
+        .where(Question.question_id == question_id, Session.user_id == user.user_id)
+    )
     if question is None:
         raise HTTPException(status_code=404, detail="question not found")
 

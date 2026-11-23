@@ -186,8 +186,9 @@ def test_empty_body_is_400(client):
     assert client.post(f"/sessions/{session_id}/chunks?seq=0", content=b"").status_code == 400
 
 
-def test_chunk_for_unknown_session_is_409(client):
-    assert client.post(f"/sessions/{uuid4()}/chunks?seq=0", content=audio(5)).status_code == 409
+def test_chunk_for_unknown_session_is_404(client):
+    # the ownership check (get_owned_session) runs before the "is it recording?" 409
+    assert client.post(f"/sessions/{uuid4()}/chunks?seq=0", content=audio(5)).status_code == 404
 
 
 def test_end_transcribes_the_tail_then_stops_accepting(client, fake):
