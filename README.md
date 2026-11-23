@@ -12,11 +12,11 @@ It:
 1. Listens to your Mac's system audio and transcribes it.
 2. Detects topic changes.
 3. At a natural checkpoint (a topic shift, or enough new material), pauses the video and asks a question grounded in what was just said.
-4. Grades your answer and updates a mastery score for each concept.
+4. Grades your answer and updates an mastery elo score for each concept.
 5. Adapts future questions to reinforce topics you're still weak on.
 
 **Why system audio?**
-- Platform APIs (like YouTube's) lock functionality to one site. Capturing system audio makes it universal to all websites, recorded lectures, video conferencing platforms (Zoom, Meet), etc.
+- Platform APIs (like YouTube's) lock functionality to one site. Capturing system audio makes it universal to all websites, recorded lectures and meetings, etc.
 
 ## Stack
 - **Audio ingestion:** Apple ScreenCaptureKit
