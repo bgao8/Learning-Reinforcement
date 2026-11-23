@@ -47,6 +47,6 @@ It:
 
 ## Status
 **MVP in progress.**
-The core loop works end to end. App listens to a video, detects topic shifts, generates a quiz and pops up a quiz card, pauses playback, grades each answer, and resumes playback.
+The core loop works end to end. App listens to a video, detects topic shifts, generates a quiz and pops up a quiz card, pauses playback, grades each answer, updates concept elo, and resumes playback.
 
 macOS on Apple Silicon only. The Electron client lives in `client/`, the FastAPI backend in `server/`. Setup instructions will land with the architecture diagram and demo.
