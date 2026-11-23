@@ -1,9 +1,27 @@
 // Capture and the session API. The UI (app.js) calls start() / stop() and reads
 // currentSessionId(); capture.onEnded tells it when the track died on its own.
-const API = "http://127.0.0.1:8000"
+// { url, token } from main.js, asked once: every call awaits the same promise
+const server = window.api.server()
+let warnedAuth = false   // log the 401 fix once, not on every chunk
+
+// fetch for the Frizz API: takes a path ("/sessions"), adds the server URL and this device's
+// token (#33). Returns the Response like fetch does; callers still check res.ok.
+async function apiFetch(path, options = {}) {
+    const { url, token } = await server
+    const headers = { ...options.headers }
+    if (token) {
+        headers.Authorization = `Bearer ${token}`
+    }
+    const res = await fetch(`${url}${path}`, { ...options, headers })
+    if (res.status === 401 && !warnedAuth) {
+        warnedAuth = true
+        window.api.log("[auth] token missing or rejected: set FRIZZ_TOKEN and restart")
+    }
+    return res
+}
 
 async function createSession() {
-    const res = await fetch(`${API}/sessions`, {
+    const res = await apiFetch(`/sessions`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ source: "system-audio" })
@@ -17,7 +35,7 @@ async function createSession() {
 }
 
 async function endSession(sessionId) {
-    const res = await fetch(`${API}/sessions/${sessionId}/end`, { 
+    const res = await apiFetch(`/sessions/${sessionId}/end`, { 
         method: "PATCH" 
     })
     if (!res.ok) {
@@ -27,7 +45,7 @@ async function endSession(sessionId) {
 
 // optional video title (#25): sent to question generation as LECTURE TITLE
 async function saveSessionTitle(sessionId, title) {
-    const res = await fetch(`${API}/sessions/${sessionId}`, {
+    const res = await apiFetch(`/sessions/${sessionId}`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ title }),
@@ -40,7 +58,7 @@ async function saveSessionTitle(sessionId, title) {
 const CHUNK = 16000 * 5
 
 async function uploadChunk(sessionId, seq, samples) {
-    const res = await fetch(`${API}/sessions/${sessionId}/chunks?seq=${seq}`, {
+    const res = await apiFetch(`/sessions/${sessionId}/chunks?seq=${seq}`, {
         method: "POST",
         headers: { "Content-Type": "application/octet-stream" },
         body: samples
@@ -195,3 +213,9 @@ async function stop() {
         window.api.log(`Error ending session: ${err.message}`)
     }
 }
+
+// says right away whether the token works, instead of a 401 on the first chunk
+apiFetch("/users/me").then(
+    (res) => window.api.log(res.ok ? "[auth] signed in" : `[auth] not signed in (${res.status}): set FRIZZ_TOKEN`),
+    (err) => window.api.log(`[auth] server unreachable: ${err.message}`),
+)

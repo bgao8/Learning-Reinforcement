@@ -1,6 +1,6 @@
 // Quiz data: polls the server for pending questions and posts answers. No DOM here: the UI
 // (app.js) gets questions through quiz.onPending and decides what to show; media.js hooks
-// onQuizShown / onQuizDone to pause and resume the video (#20). Uses API from renderer.js.
+// onQuizShown / onQuizDone to pause and resume the video (#20). Uses apiFetch from renderer.js.
 
 const POLL_MS = 5000
 const TAIL_MS = 30000   // keep polling this long after recording stops: questions land ~7 s after a trigger
@@ -40,7 +40,7 @@ async function pollPending() {
     }
     if (quiz.open || !quiz.sessionId) return
     try {
-        const res = await fetch(`${API}/sessions/${quiz.sessionId}/questions/pending`)
+        const res = await apiFetch(`/sessions/${quiz.sessionId}/questions/pending`)
         if (!res.ok) throw new Error(`pending failed: ${res.status}`)
         const pending = await res.json()
         if (pending.questions.length > 0 && !quiz.open) quiz.onPending(pending)
@@ -53,7 +53,7 @@ async function pollPending() {
 // couldn't be reached: the question stays unanswered and comes back in a later quiz.
 async function postAttempt(questionId, answer) {
     try {
-        const res = await fetch(`${API}/questions/${questionId}/attempts`, {
+        const res = await apiFetch(`/questions/${questionId}/attempts`, {
             method: "POST",
             headers: { "Content-Type": "application/json" },
             body: JSON.stringify({ user_answer: answer }),
