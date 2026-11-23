@@ -24,8 +24,7 @@ It:
 - **LLMs:** Claude Sonnet 5 for question generation and grading; Qwen2.5:7b running locally via Ollama for topic-shift detection and embeddings
 - **Backend:** FastAPI, SQLAlchemy, Alembic
 - **Data:** Postgres + pgvector
-- **Frontend:** Electron.js (Node.js)
-- **Desktop controls:** nut.js
+- **Frontend:** Electron.js (Node.js), Swift helpers
 - **Cloud:** AWS
 
 ## Design Decisions
