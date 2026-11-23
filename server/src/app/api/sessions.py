@@ -17,13 +17,14 @@ from app.jobs.questions import (
     GeneratedQuiz, generate_questions, keep_grounded, known_concepts, lecture_topics, load_span, save_questions, save_course
 )
 from app.db.session import SessionLocal, get_db
-from app.api.deps import get_current_user, get_shift_client, get_smart_client
+from app.api.deps import get_current_user, get_shift_client, get_smart_client, get_owned_session
 from app.llm import ModelClient
 from app.topic_shift import QuizTrigger, run_checkpoint
 
 from app.stt.factory import make_transcriber
 from app.stt.live import LiveSession, OutOfOrderChunk, TranscriptPiece
 from app.stt.transcriber import Transcriber
+
 
 live_sessions: dict[UUID, LiveSession] = {}
 # asyncio only keeps weak references to tasks; hold them here so they aren't garbage-collected mid-run
@@ -95,30 +96,23 @@ def create_session(body: SessionCreate, db: DbSession = Depends(get_db), user: U
     return new_session
 
 @router.patch("/{session_id}", response_model=SessionOut)
-def update_session(session_id: UUID, body: SessionUpdate, db: DbSession = Depends(get_db)):
+def update_session(body: SessionUpdate, session: Session = Depends(get_owned_session), db: DbSession = Depends(get_db)):
     """Set the session's title. Question generation reads it as LECTURE TITLE from the next quiz on."""
-    session = db.get(Session, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="session not found")
     session.title = body.title or None
     db.commit()
     db.refresh(session)
     # Whisper's prompt uses the title too, from the next window on
-    live = live_sessions.get(session_id)
+    live = live_sessions.get(session.session_id)
     if live is not None:
         live.title = session.title
     return session
 
 
 @router.patch("/{session_id}/end", response_model=SessionOut)
-async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
-    session = db.get(Session, session_id)
-    if not session:
-        raise HTTPException(status_code=404, detail="session not found")
-
-    live = live_sessions.pop(session_id, None)
+async def end_session(session: Session = Depends(get_owned_session), db: DbSession = Depends(get_db)):
+    live = live_sessions.pop(session.session_id, None)
     if live is not None:
-        save_pieces(db, session_id, await live.finish())
+        save_pieces(db, session.session_id, await live.finish())
 
     if session.ended_at is None:
         session.ended_at = datetime.now(UTC)
@@ -128,16 +122,13 @@ async def end_session(session_id: UUID, db: DbSession = Depends(get_db)):
     return session
 
 @router.get("/{session_id}/questions/pending", response_model=PendingQuiz)
-def pending_questions(session_id: UUID, db: DbSession = Depends(get_db), user: User = Depends(get_current_user)):
+def pending_questions(session: Session = Depends(get_owned_session), db: DbSession = Depends(get_db), user: User = Depends(get_current_user)):
     """The oldest quiz in this session that still has questions the user hasn't answered, with only those questions."""
-    if db.get(Session, session_id) is None:
-        raise HTTPException(status_code=404, detail="session not found")
-
     answered = select(Attempt.question_id).where(Attempt.user_id == user.user_id)
     rows = db.execute(
         select(Question, Quiz.topic)
         .join(Quiz, Question.quiz_id == Quiz.quiz_id)
-        .where(Quiz.session_id == session_id, Question.question_id.not_in(answered))
+        .where(Quiz.session_id == session.session_id, Question.question_id.not_in(answered))
         .order_by(Quiz.triggered_at, Question.created_at, Question.prompt)
     ).all()
 
@@ -152,8 +143,8 @@ def pending_questions(session_id: UUID, db: DbSession = Depends(get_db), user: U
 
 
 @router.post("/{session_id}/chunks", status_code=204)
-async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSession = Depends(get_db), shift_client: ModelClient = Depends(get_shift_client), smart_client: ModelClient = Depends(get_smart_client)):
-    live = live_sessions.get(session_id)
+async def upload_chunk(seq: int, request: Request, session: Session = Depends(get_owned_session), db: DbSession = Depends(get_db), shift_client: ModelClient = Depends(get_shift_client), smart_client: ModelClient = Depends(get_smart_client)):
+    live = live_sessions.get(session.session_id)
     if live is None:
         raise HTTPException(status_code=409, detail="session is not recording")
 
@@ -166,12 +157,12 @@ async def upload_chunk(session_id: UUID, seq: int, request: Request, db: DbSessi
     except OutOfOrderChunk:
         raise HTTPException(status_code=409, detail=f"expected seq {live.next_seq}")
 
-    save_pieces(db, session_id, pieces)
+    save_pieces(db, session.session_id, pieces)
 
     # topic-shift check runs in the background so this request returns right away
     if not live.checking:
         live.checking = True
-        _spawn(checkpoint_task(live, shift_client, smart_client, session_id))
+        _spawn(checkpoint_task(live, shift_client, smart_client, session.session_id))
 
 
 async def checkpoint_task(live: LiveSession, client: ModelClient, smart_client: ModelClient, session_id: UUID) -> None:

@@ -1,13 +1,14 @@
 """Dependencies shared by the API routers: current user and cached model clients."""
 from functools import cache
 from datetime import UTC, datetime, timedelta
+from uuid import UUID
 
 from fastapi import Depends, HTTPException
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy import select
 from sqlalchemy.orm import Session as DbSession
 
-from app.db.models import User, DeviceToken
+from app.db.models import User, DeviceToken, Session
 from app.db.session import get_db
 from app.auth import hash_token, TOKEN_TTL
 from app.llm import ModelClient, make_client
@@ -39,6 +40,13 @@ def get_current_user(credentials: HTTPAuthorizationCredentials | None = Depends(
         db.commit()
 
     return db.get(User, token.user_id)
+
+
+def get_owned_session(session_id: UUID, db: DbSession = Depends(get_db), user: User = Depends(get_current_user)) -> Session:
+    session = db.get(Session, session_id)
+    if session is None or session.user_id != user.user_id:
+        raise HTTPException(status_code=404, detail="session not found")
+    return session
 
 
 @cache
