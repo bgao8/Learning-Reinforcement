@@ -1,0 +1,21 @@
+# Server dependencies, pinned to the versions the tests pass with.
+# pyproject.toml lists the same packages as minimums; keep the two in sync when adding one.
+#
+#   pip install -r requirements.txt
+#
+# Only direct dependencies are pinned; pip resolves what they need.
+
+alembic==1.20.0
+anthropic==1.16.0
+fastapi==0.156.1
+numpy==2.5.4
+ollama==0.6.3
+pgvector==0.5.1
+psycopg[binary]==3.3.6
+pydantic-settings==2.16.1
+sqlalchemy==2.1.5
+uvicorn[standard]==0.54.0
+
+# Local Whisper (stt_provider = "mlx") runs on Apple Silicon only, so it's skipped elsewhere,
+# e.g. in a Linux container. It also pulls in torch (~1 GB).
+mlx-whisper==0.4.3; sys_platform == "darwin" and platform_machine == "arm64"
