@@ -9,4 +9,5 @@ contextBridge.exposeInMainWorld("api", {
     focus: () => ipcRenderer.invoke("focus"),
     islandRect: (rect) => ipcRenderer.send("island-rect", rect),
     onShortcut: (fn) => ipcRenderer.on("shortcut", (_e, name) => fn(name)),
+    server: () => ipcRenderer.invoke("server"),   // { url, token } (#33)
 })

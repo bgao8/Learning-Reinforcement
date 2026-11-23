@@ -193,6 +193,12 @@ app.whenReady().then(() => {
         })
     }))
 
+    // where the API lives and this device's token (#33); PR 2 replaces the env var with sign-in
+    ipcMain.handle("server", () => ({
+        url: process.env.FRIZZ_API_URL || "http://127.0.0.1:8000",
+        token: process.env.FRIZZ_TOKEN || null,
+    }))
+
     session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
         try {
             const sources = await desktopCapturer.getSources({ types: ["screen"] });
