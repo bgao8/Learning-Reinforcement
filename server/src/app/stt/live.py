@@ -88,6 +88,9 @@ class LiveSession:
 
     def whisper_prompt(self, window: Window) -> str | None:
         """Title, names so far and the text right before the window's audio starts (not the
-        margin it shares with the previous window, or Whisper would expect those words twice)."""
+        margin it shares with the previous window, or Whisper would expect those words twice).
+        None without that text: Whisper can repeat a bare title instead of hearing the speech."""
         recent = self.buffer.between(window.t0 - 30, window.t0)
+        if not recent.strip():
+            return None
         return whisper_prompt(self.title, self.names.terms(), recent)

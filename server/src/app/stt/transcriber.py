@@ -1,6 +1,5 @@
 from typing import Protocol
 from dataclasses import dataclass
-import mlx_whisper
 import numpy as np
 
 
@@ -24,9 +23,3 @@ class Transcriber(Protocol):
         """Words with times relative to the start of samples. prompt: text that came before
         the audio, which steers spellings (see stt/names.py)."""
         ...
-
-    def _transcribe_words_sync(self, samples: np.ndarray) -> list[Word]:
-        result = mlx_whisper.transcribe(
-            ...,
-            word_timestamps=True
-        )

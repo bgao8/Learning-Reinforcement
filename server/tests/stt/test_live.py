@@ -136,7 +136,7 @@ async def test_prompt_carries_title_names_and_earlier_text():
     live = LiveSession(fake, title="Toyota aero")
     for seq in range(3):
         await live.add_chunk(seq, loud(5))   # 15 s: windows at 0–5 and 5–10 are done
-    assert fake.prompts[0] == "Toyota aero."
+    assert fake.prompts[0] is None   # no text before it yet, so the title isn't sent alone
     assert fake.prompts[1] == "Toyota aero. GR Corolla. then the GR Corolla"
 
 
@@ -147,3 +147,16 @@ async def test_title_change_reaches_the_next_window():
     live.title = "Flywheel KERS"
     await live.add_chunk(1, loud(5))
     assert fake.prompts[1].startswith("Flywheel KERS.")
+
+
+async def test_names_are_not_sent_without_recent_text():
+    # sound at 0–6 s and 45–51 s: after the silence the names are still known, but no text
+    # falls in the 30 s before the window
+    fake = FakeTranscriber(words=["then the GR Corolla", "went faster", "on the track", "again"])
+    live = LiveSession(fake, title="Toyota aero")
+    await live.add_chunk(0, loud(6))
+    await live.add_chunk(1, quiet(39))
+    await live.add_chunk(2, loud(6))
+    assert live.names.terms() == ["GR Corolla"]
+    assert "GR Corolla" in fake.prompts[1]
+    assert fake.prompts[2] is None   # the first window after the silence
