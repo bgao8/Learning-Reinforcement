@@ -1,0 +1,7 @@
+.venv
+.venv.nosync
+**/__pycache__
+.pytest_cache
+tests
+evals
+*.wav
