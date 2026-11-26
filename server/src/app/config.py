@@ -19,8 +19,8 @@ class Settings(BaseSettings):
     smart_timeout_s: float = 90.0    # adaptive thinking + 3 questions can run past 30s
     smart_max_tokens: int = 16000    # thinking counts toward max_tokens; 1024 truncates the JSON
 
-    fast_provider: str = "ollama"
-    fast_model: str = "qwen2.5:7b"
+    fast_provider: str = "anthropic"
+    fast_model: str = "claude-haiku-5-5"
     fast_timeout_s: float = 60.0
     fast_max_tokens: int = 1024
 
