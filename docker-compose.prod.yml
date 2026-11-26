@@ -1,0 +1,50 @@
+# Production: Caddy (HTTPS) -> API -> Postgres, all on one server.
+#   docker compose -f docker-compose.prod.yml up -d --build
+# Values like ${GROQ_API_KEY} come from the .env next to this file (never committed).
+services:
+  db:
+    image: pgvector/pgvector:pg16          # same image as local dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: frizz
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:?set POSTGRES_PASSWORD in .env}
+      POSTGRES_DB: frizz
+    volumes:
+      - pgdata:/var/lib/postgresql/data    # the data survives container rebuilds
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U frizz -d frizz"]
+      interval: 5s
+      retries: 10
+    # no ports: only the api container can reach the database
+
+  api:
+    build: ./server                        # the Dockerfile from this PR
+    restart: unless-stopped
+    environment:
+      DATABASE_URL: postgresql://frizz:${POSTGRES_PASSWORD}@db:5432/frizz   # "db" = the service above
+      ANTHROPIC_API_KEY: ${ANTHROPIC_API_KEY:?set ANTHROPIC_API_KEY in .env}
+      GROQ_API_KEY: ${GROQ_API_KEY:?set GROQ_API_KEY in .env}
+    depends_on:
+      db:
+        condition: service_healthy         # don't run migrations before Postgres accepts connections
+    # no ports: Caddy forwards to it
+
+  caddy:
+    image: caddy:2
+    restart: unless-stopped
+    ports:
+      - "80:80"                            # needed for the HTTPS certificate check
+      - "443:443"
+    environment:
+      SITE_ADDRESS: ${SITE_ADDRESS:?set SITE_ADDRESS in .env, e.g. 3.14.15.92.sslip.io}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data                   # certificates; keeping them avoids hitting Let's Encrypt limits
+      - caddy_config:/config
+    depends_on:
+      - api
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:
