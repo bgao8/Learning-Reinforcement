@@ -1,14 +1,18 @@
 """LiveSession: runs one recording's audio through the transcription pipeline."""
+import logging
+
 import numpy as np
 from dataclasses import dataclass
 
 from app.stt.buffer import TranscriptBuffer
 from app.stt.names import NameGlossary, whisper_prompt
 from app.stt.silence import is_silent
-from app.stt.transcriber import Transcriber
+from app.stt.transcriber import Transcriber, TranscriptionError
 from app.stt.windower import AudioWindower, Window, owned_words
 from app.checkpoint import CheckpointGate
 from app.config import settings
+
+log = logging.getLogger(__name__)
 
 
 class OutOfOrderChunk(Exception):
@@ -75,7 +79,12 @@ class LiveSession:
             return None
 
         prompt = self.whisper_prompt(window)
-        words = await self._transcriber.transcribe_words(window.samples, prompt=prompt)
+        try:
+            words = await self._transcriber.transcribe_words(window.samples, prompt=prompt)
+        except TranscriptionError as e:
+            # a hosted transcriber can fail (network, rate limit): lose this window, not the upload
+            log.warning("window %d (%.0f-%.0f s) not transcribed: %s", seq, window.own_start, window.own_end, e)
+            return None
         kept = owned_words(window, words)
         self.buffer.add(kept)
         self.names.add([w.text for w in kept])

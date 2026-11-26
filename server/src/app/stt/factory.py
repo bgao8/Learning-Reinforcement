@@ -8,4 +8,12 @@ def make_transcriber(s: Settings = default_settings) -> Transcriber:
         from app.stt.mlx import MlxWhisperTranscriber
         return MlxWhisperTranscriber(model=s.stt_model, language=s.stt_language)
 
-    raise ValueError(f"unknown stt_provider {s.stt_provider!r} (expected 'mlx')")
+    if s.stt_provider == "groq":
+        if not s.groq_api_key:
+            raise ValueError("stt_provider 'groq' needs GROQ_API_KEY in the repo-root .env")
+        from app.stt.groq import GroqWhisperTranscriber
+        return GroqWhisperTranscriber(
+            s.groq_api_key, model=s.groq_stt_model, language=s.stt_language, timeout_s=s.groq_timeout_s,
+        )
+
+    raise ValueError(f"unknown stt_provider {s.stt_provider!r} (expected 'mlx' or 'groq')")
