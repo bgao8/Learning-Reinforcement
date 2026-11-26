@@ -39,7 +39,7 @@ It:
 - [x] **Foundations:** Electron app, overlay window, Postgres + pgvector, agent framework basics (provider-agnostic model client: Anthropic + local)
 - [x] **Pipeline:** agent loop + tracing, chunked audio upload, local Whisper transcription with silence filtering, rolling transcript buffer
 - [x] **Quiz loop:** checkpoint detection, grounded question generation, media-key pause, question card UI, LLM grading
-- [ ] **Adaptation:** concept extraction + dedup, Elo mastery, adaptive prompting
+- [x] **Adaptation:** concept extraction + dedup, Elo mastery, adaptive prompting
 - [ ] **Quality & polish:** eval harness (grader agreement, groundedness, local vs. API model comparison), SM-2 review mode (stretch), architecture diagram + demo
 
 **Done when:** a 20-minute lecture produces grounded questions at sensible points, results persist, and the next session adapts.
