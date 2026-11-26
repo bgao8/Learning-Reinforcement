@@ -1,0 +1,5 @@
+# HTTPS in front of the API. Caddy gets and renews the certificate for SITE_ADDRESS itself. Reverse proxy.
+{$SITE_ADDRESS} {
+    encode gzip
+    reverse_proxy api:8000
+}
