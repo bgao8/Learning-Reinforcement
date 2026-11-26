@@ -24,7 +24,7 @@ class Settings(BaseSettings):
     fast_timeout_s: float = 60.0
     fast_max_tokens: int = 1024
 
-    stt_provider: str = "mlx"       # "mlx" (local, Apple Silicon only) or "groq" (hosted)
+    stt_provider: str = "groq"       # "mlx" (local, Apple Silicon only) or "groq" (hosted)
     stt_model: str = "mlx-community/whisper-large-v3-turbo"
     stt_language: str = "en"
     groq_api_key: str | None = None
