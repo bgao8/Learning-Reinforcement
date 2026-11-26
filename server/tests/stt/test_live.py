@@ -3,7 +3,7 @@ import pytest
 
 from app.config import settings
 from app.stt.live import LiveSession, OutOfOrderChunk
-from app.stt.transcriber import SAMPLE_RATE, Word
+from app.stt.transcriber import SAMPLE_RATE, TranscriptionError, Word
 
 pytestmark = pytest.mark.anyio
 
@@ -160,3 +160,26 @@ async def test_names_are_not_sent_without_recent_text():
     assert live.names.terms() == ["GR Corolla"]
     assert "GR Corolla" in fake.prompts[1]
     assert fake.prompts[2] is None   # the first window after the silence
+
+
+# --- a transcriber that fails ---
+
+class FlakyTranscriber(FakeTranscriber):
+    """Fails its first call, the way a hosted transcriber does when the network drops."""
+
+    async def transcribe_words(self, samples, prompt=None):
+        if not self.calls:
+            self.calls.append(len(samples) / SAMPLE_RATE)
+            raise TranscriptionError("Groq unreachable: ConnectError('refused')")
+        return await super().transcribe_words(samples, prompt)
+
+
+async def test_failed_window_is_skipped_and_the_next_still_transcribed(caplog):
+    fake = FlakyTranscriber()
+    live = LiveSession(fake)
+    first = await live.add_chunk(0, loud(6))    # window 0–5: transcription fails
+    second = await live.add_chunk(1, loud(5))   # window 5–10: works
+    assert first == []
+    assert [p.text for p in second] == ["word2"]
+    assert live.buffer.last(1000) == "word2"
+    assert "not transcribed" in caplog.text

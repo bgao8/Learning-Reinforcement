@@ -19,14 +19,17 @@ class Settings(BaseSettings):
     smart_timeout_s: float = 90.0    # adaptive thinking + 3 questions can run past 30s
     smart_max_tokens: int = 16000    # thinking counts toward max_tokens; 1024 truncates the JSON
 
-    fast_provider: str = "ollama"
-    fast_model: str = "qwen2.5:7b"
+    fast_provider: str = "anthropic"
+    fast_model: str = "claude-haiku-5-5"
     fast_timeout_s: float = 60.0
     fast_max_tokens: int = 1024
 
-    stt_provider: str = "mlx"
+    stt_provider: str = "groq"       # "mlx" (local, Apple Silicon only) or "groq" (hosted)
     stt_model: str = "mlx-community/whisper-large-v3-turbo"
     stt_language: str = "en"
+    groq_api_key: str | None = None
+    groq_stt_model: str = "whisper-large-v3-turbo"   # the same model as stt_model, hosted by Groq
+    groq_timeout_s: float = 10.0    # a window is due every 5 s, so a slower reply falls behind
 
     # CheckpointGate timings, in lecture seconds. Short on purpose: frequent quizzes keep
     # the learner paying attention. Earliest topic-shift quiz = cooldown + one check.

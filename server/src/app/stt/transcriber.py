@@ -12,6 +12,10 @@ class Word:
     text: str
 
 
+class TranscriptionError(Exception):
+    """A transcriber couldn't transcribe this audio (network, rate limit, server error)."""
+
+
 class Transcriber(Protocol):
     """Anything with this method counts as a transcriber."""
 
